@@ -1,0 +1,48 @@
+:root { color-scheme: dark; font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", sans-serif; background: #090e16; color: #b3bfcb; }
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 100%; height: 100%; }
+body { overflow: hidden; background: #090e16; }
+button, input, select { font: inherit; }
+
+/* The stage is the whole viewport. Nothing reserves space for controls. */
+.presence { position: relative; width: 100%; height: 100svh; min-height: 320px; overflow: hidden;
+  background: radial-gradient(ellipse at 50% 46%, #17222e 0%, #101923 39%, #090e16 78%); }
+.particle-stage { position: absolute; inset: 0; touch-action: none; }
+.particle-stage canvas { display: block; width: 100%; height: 100%; }
+
+/* Setup and connection notices: quiet, near the bottom edge, gone once the session is live. */
+.stage-notice { position: absolute; left: 50%; bottom: max(20px, env(safe-area-inset-bottom)); transform: translateX(-50%);
+  width: min(calc(100vw - 32px), 380px); text-align: center; font-size: 12px; line-height: 1.6;
+  animation: notice-in .8s ease-out both; }
+.notice-card { padding: 12px 18px; border-radius: 14px; background: #0b121bd9; border: 1px solid #ffffff0e;
+  backdrop-filter: blur(8px); }
+.stage-notice h2 { margin: 0 0 4px; font-size: 14px; font-weight: 500; color: #d8e2ec; letter-spacing: .02em; }
+.stage-notice p { margin: 0; color: #8b9cad; }
+.notice-line { color: #8b9cad; margin-top: 8px !important; }
+.notice-line.delayed { animation: notice-delayed 1.4s both; }
+.notice-actions { display: flex; justify-content: center; gap: 6px; margin-top: 8px; }
+.notice-actions button { border: 1px solid #ffffff1c; background: #ffffff0b; color: #dce6ef;
+  padding: 5px 14px; border-radius: 16px; cursor: pointer; font-size: 12px; transition: color .2s, background .2s; }
+.notice-actions button:hover { color: #eef4fa; background: #ffffff16; }
+.notice-actions button:disabled { opacity: .5; cursor: default; }
+.stage-notice :focus-visible { outline: 1px solid #9dadbf; outline-offset: 3px; }
+@keyframes notice-in { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@keyframes notice-delayed { 0%, 85% { opacity: 0; } 100% { opacity: 1; } }
+
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0,0,0,0);
+  white-space: nowrap; border: 0; }
+
+/* Development only (?debug=1). */
+.debug-panel { position: absolute; z-index: 2; top: 16px; right: 16px; width: 300px; max-height: calc(100svh - 32px);
+  overflow: auto; padding: 14px; background: #131d2aee; font: 11px/1.6 ui-monospace, monospace; border-radius: 10px; }
+.debug-panel details { margin-top: 8px; }
+.debug-panel summary { cursor: pointer; color: #9fb6ca; }
+.debug-panel label { display: flex; justify-content: space-between; }
+.debug-panel input, .debug-panel select { width: 110px; background: #263344; border: 0; color: inherit; padding: 2px 5px; }
+.debug-panel input[type=file] { width: 100%; margin-top: 6px; }
+.debug-panel div { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
+.debug-panel button { background: #263344; color: inherit; border: 0; padding: 2px 7px; border-radius: 4px; cursor: pointer; }
+.debug-panel button:hover { background: #33455b; }
+.debug-panel output { display: block; margin-top: 6px; white-space: pre-wrap; word-break: break-word; color: #cfe0ec; }
+@media (max-width: 640px) { .debug-panel { width: calc(100vw - 32px); max-height: 45svh; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
