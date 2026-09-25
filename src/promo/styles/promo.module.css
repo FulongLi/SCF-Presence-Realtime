@@ -1,0 +1,86 @@
+/*
+ * The film frame: a 16:9 picture letterboxed in black at any window size. Every size inside it is a
+ * fraction of the frame (container units), so the composition is identical at 1920×1080, in a laptop
+ * window and in fullscreen, and nothing reflows.
+ */
+.stage {
+  position: fixed; inset: 0; display: grid; place-items: center; overflow: hidden;
+  background: #000; color: #eef2f6;
+  font-family: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+  font-synthesis: none; text-rendering: geometricPrecision;
+}
+.stage[data-cursor="hidden"], .stage[data-cursor="hidden"] * { cursor: none !important; }
+
+.frame {
+  position: relative; overflow: hidden; background: #000;
+  width: min(100vw, calc(100vh * 16 / 9)); height: min(100vh, calc(100vw * 9 / 16));
+  container-type: size;
+}
+.canvas { position: absolute; inset: 0; }
+.canvas canvas { display: block; width: 100%; height: 100%; }
+
+/* The film's words. Opacity (--o) and the fade-in reveal (--r) are written every frame by the player. */
+.words { position: absolute; inset: 0; pointer-events: none; }
+.line {
+  position: absolute; left: 0; right: 0; margin: 0; padding: 0 8cqw; text-align: center; line-height: 1.3;
+  visibility: hidden; opacity: var(--o, 0);
+  transform: translateY(calc((1 - var(--r, 1)) * 0.6cqh));
+  filter: blur(calc((1 - var(--r, 1)) * 0.22cqh));
+  will-change: opacity, transform;
+}
+.question { top: 79cqh; font-size: 2.55cqh; font-weight: 300; letter-spacing: 0.012em; color: #edf1f5; }
+.caption { top: 82.5cqh; font-size: 2.2cqh; font-weight: 300; letter-spacing: 0.07em; color: #e1e7ed; }
+.title { top: 66.5cqh; font-size: 5cqh; font-weight: 300; letter-spacing: 0.055em; color: #f3f6f9; }
+.tagline { top: 75.4cqh; font-size: 2.1cqh; font-weight: 300; letter-spacing: 0.03em; color: #c3cdd7; }
+.maker { top: 88.5cqh; font-size: 1.32cqh; font-weight: 400; letter-spacing: 0.36em; text-transform: uppercase; color: #8894a0; padding-left: calc(8cqw + 0.36em); }
+.subtitle {
+  top: auto; bottom: 6cqh; font-size: 2.05cqh; font-weight: 400; letter-spacing: 0.008em; color: #e8edf2;
+  text-shadow: 0 0 0.8cqh rgba(0, 0, 0, 0.85);
+  transform: none; filter: none;
+}
+.subtitle[data-speaker="user"] { color: #a9b4bf; font-weight: 300; }
+.blackout { position: absolute; inset: 0; background: #000; opacity: var(--o, 0); pointer-events: none; }
+
+/* Controls: only before, after, or while paused; never over the playing film. */
+.controls { position: absolute; inset: 0; display: grid; place-items: center; }
+/* Paused: the frame dims well down, so the controls read clearly over whatever is on screen. */
+.controls[data-dim="true"] { background: rgba(0, 0, 0, 0.72); }
+.panel { display: flex; flex-direction: column; align-items: center; gap: 2.4cqh; animation: appear 1.4s ease both; }
+.brand {
+  margin: 0; padding-left: 0.42em; font-size: max(11px, 1.5cqh); font-weight: 400; letter-spacing: 0.42em;
+  text-transform: uppercase; color: #aab5c0;
+}
+.status { margin: 0; font-size: max(11px, 1.35cqh); letter-spacing: 0.08em; color: #6d7985; animation: breathe 2.6s ease-in-out infinite; }
+.play {
+  display: inline-flex; align-items: center; gap: 1.1cqh; padding: 1.15cqh 2.7cqh 1.15cqh 2.3cqh;
+  border: 1px solid rgba(255, 255, 255, 0.24); border-radius: 999px; background: rgba(8, 11, 15, 0.72);
+  color: #eef2f6; font: inherit; font-size: max(12px, 1.55cqh); letter-spacing: 0.14em; cursor: pointer;
+  transition: background 0.35s ease, border-color 0.35s ease;
+}
+.play:hover { background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.42); }
+.play:focus-visible, .icon:focus-visible, .text:focus-visible { outline: 1px solid #9fb0c1; outline-offset: 3px; }
+.play svg { width: max(9px, 1.15cqh); height: max(9px, 1.15cqh); }
+.row { display: flex; gap: 1.6cqh; align-items: center; }
+.text {
+  border: 0; background: none; color: #8b97a3; font: inherit; font-size: max(11px, 1.35cqh); letter-spacing: 0.14em;
+  cursor: pointer; padding: 0.6cqh 1cqh; transition: color 0.3s ease;
+}
+.text:hover { color: #e6ecf1; }
+.note { margin: 0; max-width: 62cqw; text-align: center; font-size: max(11px, 1.3cqh); line-height: 1.6; color: #75818d; letter-spacing: 0.02em; }
+.note code { font: inherit; color: #a5b1bc; }
+.problem { color: #c9a9a3; }
+.corner { position: absolute; right: 2.2cqw; bottom: 2.4cqh; display: flex; gap: 0.6cqh; }
+.icon {
+  display: grid; place-items: center; width: max(26px, 3.6cqh); height: max(26px, 3.6cqh); border: 0; border-radius: 50%;
+  background: none; color: #6f7b87; cursor: pointer; transition: color 0.3s ease, background 0.3s ease;
+}
+.icon:hover { color: #e6ecf1; background: rgba(255, 255, 255, 0.06); }
+.icon svg { width: 52%; height: 52%; }
+.hints {
+  position: absolute; left: 0; right: 0; bottom: 2.9cqh; margin: 0; text-align: center; pointer-events: none;
+  font-size: max(10px, 1.1cqh); letter-spacing: 0.12em; color: #46515c;
+}
+@keyframes appear { from { opacity: 0; } to { opacity: 1; } }
+@keyframes breathe { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+.controls[data-dim="true"] .panel { animation-duration: 0.35s; }

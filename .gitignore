@@ -17,3 +17,6 @@ next-env.d.ts
 npm-debug.log*
 /coverage
 .vercel
+
+# promo film renders (npm run promo:render)
+/output/

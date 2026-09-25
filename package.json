@@ -12,7 +12,11 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test tests/*.test.ts"
+    "test": "tsx --test tests/*.test.ts",
+    "promo": "tsx scripts/promo/serve.ts",
+    "promo:prepare": "tsx scripts/promo/prepare.ts",
+    "promo:render": "tsx scripts/promo/render.ts",
+    "promo:check": "tsx scripts/promo/prepare.ts --check && tsx scripts/promo/render.ts --check"
   },
   "dependencies": {
     "next": "16.3.6",
@@ -28,7 +32,11 @@
     "@types/three": "~0.182.0",
     "eslint": "^9",
     "eslint-config-next": "16.3.6",
+    "playwright-core": "^1.63.0",
     "tsx": "^4.21.0",
     "typescript": "^5"
+  },
+  "optionalDependencies": {
+    "ffmpeg-static": "^5.3.0"
   }
 }

@@ -222,6 +222,22 @@ The server stores nothing: no database, no conversation, no transcripts, no audi
 - It also has one-click manual tests through the real tool executor: portrait Nikola Tesla; images Tesla Model Y, Taylor Swift and a futuristic concept car; terrain Wales and United Kingdom; **local asset: Spirit Connect logo** (the local-asset resolver without OpenAI); clock, text, number, symbol; **emoji** 😊 🤔 🎉 🚀 ❤️ 👨‍🚀 🇬🇧 (plus an invalid `😊😂` that must report `invalid-arguments`); sphere. It adds free-form `show_image`/`show_emoji`/`show_terrain` inputs, direct Visual Actions, and a local file as portrait, object or heightmap. That way body, resolver and local-asset problems can be separated from model tool-selection problems, on either backend. It never shows the API key, the ephemeral secret or any provider key.
 - The debug panel is not in production builds unless `NEXT_PUBLIC_SCF_DEBUG=1`.
 
+## Promo film
+
+`/promo` is a ~61-second film performed live by the product itself: the particle body is born, then shows
+Nikola Tesla, the terrain of the United Kingdom, 🎉, 18:42 and the Spirit Connect mark through the real tool
+calls, Visual Resolver and body, and returns to itself. It never waits on the network while playing (every
+scene is resolved before Play) and it is deterministic, so it can be exported frame-exactly.
+
+```bash
+npm run promo            # dev server; open http://localhost:3000/promo  (Space · F · M · C · Esc)
+npm run promo:prepare    # record the dialogue once (OpenAI TTS, needs OPENAI_API_KEY) → public/promo/audio/
+npm run promo:render     # → output/scf-presence-promo-1080p.mp4 (1920×1080, 60 fps, H.264 + AAC)
+```
+
+Copy, dialogue and timing live in [`src/promo/script.ts`](src/promo/script.ts). Architecture, options and
+how to change the film: [docs/promo.md](docs/promo.md).
+
 ## Testing
 
 ```bash

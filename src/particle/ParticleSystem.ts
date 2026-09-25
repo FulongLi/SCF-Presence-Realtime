@@ -1,9 +1,9 @@
 import { InstancedMesh, PlaneGeometry } from "three";
 import { StorageInstancedBufferAttribute } from "three/webgpu";
-import { Fn, float, instanceIndex, mix, sin, storage, vec3 } from "three/tsl";
+import { Fn, float, instanceIndex, mix, sin, storage, uniform, vec3 } from "three/tsl";
 import { SPECTRUM_BANDS } from "@/audio/spectrum";
 import type { ParticleConfig } from "@/config/particleDefaults";
-import { createTargetPoints } from "@/visual-resolver/points";
+import { createTargetPoints, type TargetPoints } from "@/visual-resolver/points";
 import type { MorphTarget } from "@/visual-actions/types";
 import { createSphere } from "./sphere/createSphere";
 import { createUniforms } from "./physics/uniforms";
@@ -12,8 +12,12 @@ import { pusherForce } from "./physics/pusherPhysics";
 import { presenceForce } from "./physics/presenceField";
 import { integrateSpring } from "./physics/springPhysics";
 import { createMaterial } from "./rendering/material";
+import type { FormationPlan } from "./formation";
 
-export function createParticleSystem(capacity: number, config: ParticleConfig) {
+/** Builds a formation plan for the body's rest positions (see formation.ts). */
+export type FormationPlanner = (rest: Float32Array, capacity: number) => FormationPlan;
+
+export function createParticleSystem(capacity: number, config: ParticleConfig, planFormation?: FormationPlanner) {
   const sphere = createSphere(capacity, config.geometry.radius);
   const rest = storage(new StorageInstancedBufferAttribute(sphere.positions, 3), "vec3", capacity).toReadOnly();
   const seed = storage(new StorageInstancedBufferAttribute(sphere.seeds, 3), "vec3", capacity).toReadOnly();
@@ -48,13 +52,27 @@ export function createParticleSystem(capacity: number, config: ParticleConfig) {
   // Camera-facing microdiscs preserve the original instanced material pipeline,
   // with six vertices per particle instead of a full polyhedron.
   const geometry = new PlaneGeometry(1, 1);
-  const material = createMaterial(rest.toAttribute(), offsets.toAttribute(), target.toAttribute(), tones.toAttribute(), u);
+  const plan = planFormation?.(sphere.positions, capacity);
+  if (plan && (plan.launch.length !== capacity * 4 || plan.path.length !== capacity * 4)) throw new Error("invalid-formation");
+  const formationClock = uniform(0);
+  // Read per instance from storage in the vertex stage: the material already uses every vertex buffer slot.
+  const formation = plan ? {
+    time: formationClock,
+    launch: storage(new StorageInstancedBufferAttribute(plan.launch, 4), "vec4", capacity).toReadOnly().element(instanceIndex),
+    path: storage(new StorageInstancedBufferAttribute(plan.path, 4), "vec4", capacity).toReadOnly().element(instanceIndex),
+  } : undefined;
+  const material = createMaterial(rest.toAttribute(), offsets.toAttribute(), target.toAttribute(), tones.toAttribute(), u, formation);
   const mesh = new InstancedMesh(geometry, material, capacity);
   mesh.frustumCulled = false;
+  // Targets sampled ahead of time (a director that knows its visuals); anything else is sampled on upload.
+  const prepared = new WeakMap<object, TargetPoints>();
   return {
     mesh, compute, uniforms: u, capacity,
+    /** Formation clock (seconds since the formation began), when the body was built with a formation plan. */
+    formation: plan ? { clock: formationClock, end: plan.end } : null,
+    prepare(value: MorphTarget) { if (!prepared.has(value.visual)) prepared.set(value.visual, createTargetPoints(value.visual, capacity)); },
     setTarget(value: MorphTarget) {
-      const points = createTargetPoints(value.visual, capacity);
+      const points = prepared.get(value.visual) ?? createTargetPoints(value.visual, capacity);
       targetPositions.array.set(points.positions); targetPositions.needsUpdate = true;
       targetTones.array.set(points.tones); targetTones.needsUpdate = true;
     },

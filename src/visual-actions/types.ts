@@ -49,6 +49,11 @@ export interface MorphTarget {
   /** Seconds to hold the formed state. */
   hold: number;
   label: string;
+  /**
+   * Optional morph durations in seconds for this target (default `transitionSeconds`). The product never
+   * sets them; a director may, e.g. to let a brand mark form more deliberately than a clock.
+   */
+  transition?: { form?: number; return?: number };
 }
 
 export type { Raster } from "../visual-resolver/types";

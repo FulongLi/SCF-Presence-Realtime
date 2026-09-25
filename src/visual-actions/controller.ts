@@ -83,13 +83,13 @@ export class VisualActionController {
       this.phase = "forming";
       this.progress = 0;
     } else if (this.phase === "forming") {
-      this.progress = Math.min(1, this.progress + dt / transitionSeconds.form);
+      this.progress = Math.min(1, this.progress + dt / (this.target?.transition?.form ?? transitionSeconds.form));
       if (this.progress >= 1) { this.phase = "holding"; this.holdLeft = this.target?.hold ?? 0; }
     } else if (this.phase === "holding") {
       this.holdLeft -= dt;
       if (this.holdLeft <= 0) this.phase = "returning";
     } else if (this.phase === "returning") {
-      this.progress = Math.max(0, this.progress - dt / transitionSeconds.return);
+      this.progress = Math.max(0, this.progress - dt / (this.target?.transition?.return ?? transitionSeconds.return));
       if (this.progress <= 0) this.phase = "sphere";
     }
     this.level = ease(this.progress);
