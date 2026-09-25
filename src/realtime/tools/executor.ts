@@ -1,12 +1,12 @@
 import type { SubmitOutcome } from "../../visual-actions/controller";
-import { clockText } from "../../visual-actions/resolve";
-import type { VisualAction } from "../../visual-actions/types";
+import { clockText } from "../../visual-resolver/providers/glyphs";
+import { IMAGE_INTENTS, TERRAIN_STYLES, type VisualAction } from "../../visual-actions/types";
 import { validateVisualAction } from "../../visual-actions/validate";
 import { isVisualToolName, type VisualToolName } from "./definitions";
 import { displayed, failed, failureStatus, type ToolResult } from "./results";
 
 /** The part of VisualActionController the executor drives. */
-export interface VisualTarget {
+export interface VisualBody {
   submit(action: VisualAction): Promise<SubmitOutcome>;
   readonly lastFailure: string | null;
 }
@@ -23,6 +23,16 @@ const record = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 const onlyKeys = (value: Record<string, unknown>, allowed: string[]) => Object.keys(value).every(key => allowed.includes(key));
 const pad = (value: number) => String(value).padStart(2, "0");
+/**
+ * Optional enum hints (image intent, terrain style) are advisory: an unknown word falls back to the
+ * default instead of failing the whole call. A non-string is still invalid.
+ */
+function hint(value: unknown, allowed: readonly string[]): string | undefined | null {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string") return null;
+  const word = value.trim().toLowerCase();
+  return allowed.includes(word) ? word : undefined;
+}
 
 /**
  * Models sometimes say "3:42 PM" or "7:05" where the schema asks for 24-hour HH:MM.
@@ -56,6 +66,18 @@ export function toolCallToVisualAction(name: VisualToolName, args: Record<string
       const time = typeof args.time === "string" ? normalizeClockTime(args.time) : null;
       if (!time) return null;
       candidate = { type: "clock", time };
+      break;
+    }
+    case "show_image": {
+      if (!onlyKeys(args, ["query", "intent"])) return null;
+      const intent = hint(args.intent, IMAGE_INTENTS);
+      candidate = { type: "image", query: text("query")?.replace(/\s+/g, " ") ?? args.query, ...(intent === undefined ? {} : { intent }) };
+      break;
+    }
+    case "show_terrain": {
+      if (!onlyKeys(args, ["region", "style"])) return null;
+      const style = hint(args.style, TERRAIN_STYLES);
+      candidate = { type: "terrain", region: text("region")?.replace(/\s+/g, " ") ?? args.region, ...(style === undefined ? {} : { style }) };
       break;
     }
     case "show_portrait":
@@ -102,7 +124,7 @@ export const executorDefaults = {
  */
 export class ToolExecutor {
   constructor(
-    private readonly visual: VisualTarget,
+    private readonly visual: VisualBody,
     private readonly options = {
       ...executorDefaults,
       now: () => new Date(),

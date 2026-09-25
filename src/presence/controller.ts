@@ -6,7 +6,7 @@ import type { ConnectionState, RealtimePresenceState } from "../realtime/state";
 import { ToolExecutor } from "../realtime/tools/executor";
 import { browserEnvironment } from "../realtime/transport";
 import { VisualActionController } from "../visual-actions/controller";
-import { resolveVisualTarget } from "../visual-actions/resolve";
+import { createBrowserResolver, type VisualResolver } from "../visual-resolver";
 import { PresenceEngine } from "./PresenceEngine";
 
 export type MicState = "checking" | "prompt" | "requesting" | "ready" | "denied" | "unavailable";
@@ -35,13 +35,14 @@ const INITIAL_UI: PresenceUi = { mic: "checking", connection: "disconnected", er
  *                          └─► MicrophoneListener (clone) ─► PresenceEngine (listening, focus)
  *   remote assistant track ──► AssistantAudio (playback + analysis) ─► PresenceEngine (speaking)
  *   Realtime events ─────────► PresenceEngine hints (turns, thinking, barge-in)
- *   native function calls ───► ToolExecutor ─► VisualActionController ─► particle morph
+ *   native function calls ───► ToolExecutor ─► VisualActionController ─► VisualResolver ─► particle morph
  *
  * Construction is side-effect free (safe during server rendering); start() touches the browser.
  */
 export class PresenceController {
   readonly engine = new PresenceEngine();
   readonly visual: VisualActionController;
+  readonly resolver: VisualResolver;
   readonly executor: ToolExecutor;
   readonly client: RealtimeClient;
   readonly assistant: AssistantAudio;
@@ -54,7 +55,8 @@ export class PresenceController {
   private idleTimer?: ReturnType<typeof setInterval>;
 
   constructor(environment: RealtimeEnvironment = browserEnvironment, private readonly options = presenceDefaults) {
-    this.visual = new VisualActionController(resolveVisualTarget, (error, action) => {
+    this.resolver = createBrowserResolver();
+    this.visual = new VisualActionController(this.resolver.resolve, (error, action) => {
       if (process.env.NODE_ENV === "development") console.warn("[SCF] Visual Action could not be resolved", action, error);
     });
     this.executor = new ToolExecutor(this.visual);

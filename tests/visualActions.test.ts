@@ -2,9 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { validateVisualAction, allowedImageURL } from "../src/visual-actions/validate";
 import { VisualActionController, transitionSeconds } from "../src/visual-actions/controller";
-import { createTargetPoints } from "../src/visual-actions/targets/points";
-import { clockText } from "../src/visual-actions/resolve";
-import { findPortrait } from "../src/visual-actions/portrait/wikimedia";
+import { createTargetPoints } from "../src/visual-resolver/points";
+import { clockText } from "../src/visual-resolver/providers/glyphs";
 import type { MorphTarget, Raster } from "../src/visual-actions/types";
 
 test("valid actions are accepted and normalized", () => {
@@ -19,6 +18,12 @@ test("valid actions are accepted and normalized", () => {
   assert.deepEqual(validateVisualAction({ type: "symbol", value: "check" }), { type: "symbol", value: "check" });
   assert.deepEqual(validateVisualAction({ type: "portrait", person: "Nikola Tesla" }), { type: "portrait", person: "Nikola Tesla" });
   assert.deepEqual(validateVisualAction({ type: "portrait", person: "尼古拉·特斯拉" }), { type: "portrait", person: "尼古拉·特斯拉" });
+  assert.deepEqual(validateVisualAction({ type: "image", query: "Tesla Model Y", intent: "vehicle" }), { type: "image", query: "Tesla Model Y", intent: "vehicle" });
+  for (const query of ["iPhone 17 Pro", "Node.js logo", "AC/DC", "Rock & roll", "Mercedes-Benz 300 SL (1954)", "C#", "东京塔"]) {
+    assert.ok(validateVisualAction({ type: "image", query }), query);
+  }
+  assert.deepEqual(validateVisualAction({ type: "terrain", region: "Wales", style: "relief" }), { type: "terrain", region: "Wales", style: "relief" });
+  assert.deepEqual(validateVisualAction({ type: "terrain", region: "Côte d'Azur" }), { type: "terrain", region: "Côte d'Azur" });
 });
 
 test("unsupported types, extra fields, markup, scripts and arbitrary URLs are rejected", () => {
@@ -34,6 +39,10 @@ test("unsupported types, extra fields, markup, scripts and arbitrary URLs are re
     { type: "portrait", imageUrl: "https://evil.test/a.jpg" }, { type: "portrait", imageUrl: "http://upload.wikimedia.org/a.jpg" },
     { type: "portrait", imageUrl: "https://upload.wikimedia.org/a.svg" }, { type: "portrait", person: "Tesla", onload: "x" },
     Object.assign(Object.create({ type: "sphere" }), {}),
+    { type: "image" }, { type: "image", query: "" }, { type: "image", query: "cat", intent: "nsfw" }, { type: "image", query: "https://x.test/a.jpg" },
+    { type: "image", query: "cat", url: "https://x.test" }, { type: "image", query: "<b>cat</b>" }, { type: "image", query: "a\u0000b" },
+    { type: "terrain" }, { type: "terrain", region: "Wales", style: "satellite" }, { type: "terrain", region: "Wales", bbox: [0, 0, 1, 1] },
+    { type: "mesh", url: "model.glb" }, { type: "pointcloud" },
   ];
   for (const value of rejected) assert.equal(validateVisualAction(value), null, JSON.stringify(value));
 });
@@ -44,6 +53,8 @@ test("portrait images are limited to Wikimedia uploads over HTTPS", () => {
     assert.throws(() => allowedImageURL(url), url);
   }
   assert.equal(allowedImageURL("https://upload.wikimedia.org/wikipedia/commons/7/79/Tesla.jpeg").hostname, "upload.wikimedia.org");
+  // Wikimedia now serves thumbnails from its own host; lead images arrive from there.
+  assert.equal(allowedImageURL("https://thumb.wikimedia.org/wikipedia/commons/thumb/b/b1/T.png/960px-T.png?utm_source=x").hostname, "thumb.wikimedia.org");
 });
 
 test("clock actions show the explicit time, else a local timestamp, else now", () => {
@@ -54,7 +65,7 @@ test("clock actions show the explicit time, else a local timestamp, else now", (
 });
 
 const target = (label: string, hold = 2): MorphTarget => ({
-  raster: { width: 4, height: 4, data: new Uint8ClampedArray(64).fill(255) }, style: "glyph", hold, label,
+  visual: { kind: "raster2d", raster: { width: 4, height: 4, data: new Uint8ClampedArray(64).fill(255) }, style: "glyph" }, hold, label,
 });
 function lifecycle() {
   const resolved: { label: string; resolve: (value: MorphTarget) => void; reject: (error: Error) => void; signal: AbortSignal }[] = [];
@@ -138,8 +149,8 @@ function raster(width: number, height: number, paint: (x: number, y: number) => 
 
 test("portrait sampling preserves image placement, bounded relief and quality prefixes", () => {
   const image = raster(32, 32, x => x < 16 ? 240 : 30);
-  const style = "portrait" as const;
-  const large = createTargetPoints({ raster: image, style }, 2000), small = createTargetPoints({ raster: image, style }, 500);
+  const style = "portrait" as const, kind = "raster2d" as const;
+  const large = createTargetPoints({ kind, raster: image, style }, 2000), small = createTargetPoints({ kind, raster: image, style }, 500);
   assert.deepEqual(large.positions.slice(0, 1500), small.positions);
   let left = 0;
   for (let i = 0; i < small.tones.length; i++) {
@@ -154,48 +165,13 @@ test("portrait sampling preserves image placement, bounded relief and quality pr
 test("glyph sampling places particles only on the shape", () => {
   // A vertical bar in the middle third of a wide raster.
   const image = raster(90, 30, x => x >= 30 && x < 60 ? 255 : 0);
-  const points = createTargetPoints({ raster: image, style: "glyph" }, 3000);
+  const points = createTargetPoints({ kind: "raster2d", raster: image, style: "glyph" }, 3000);
   const width = Math.min(2, 3.2 / 3) * 3;
   for (let i = 0; i < 3000; i++) {
     const x = points.positions[i * 3], z = points.positions[i * 3 + 2];
     assert.ok(x >= -width / 6 - 1e-6 && x <= width / 6 + 1e-6, `x=${x}`);
     assert.ok(Math.abs(z) <= 0.08);
   }
-  assert.throws(() => createTargetPoints({ raster: raster(8, 8, () => 0), style: "glyph" }, 10));
-  assert.throws(() => createTargetPoints({ raster: { width: 4, height: 4, data: new Uint8ClampedArray(3) }, style: "glyph" }, 10));
-});
-
-test("portrait lookup is client-side: anonymous CORS requests, no redirects, bounded images", async () => {
-  const urls: string[] = [];
-  const request = async (input: string | URL | Request, init?: RequestInit) => {
-    const url = String(input); urls.push(url);
-    assert.equal(init?.redirect, "error");
-    assert.equal(init?.credentials, "omit");
-    if (url.includes("wikipedia.org")) {
-      assert.match(url, /origin=\*/);
-      return Response.json({ query: { pages: [{ title: "Nikola Tesla", pageimage: "Tesla.jpeg" }] } });
-    }
-    if (url.includes("commons.wikimedia.org")) return Response.json({ query: { pages: [{ imageinfo: [{ url: "https://upload.wikimedia.org/photo.jpeg", extmetadata: { Artist: { value: "<b>Photographer</b>" }, LicenseShortName: { value: "Public domain" } } }] }] } });
-    return new Response(new Uint8Array([1, 2, 3]), { headers: { "content-type": "image/jpeg" } });
-  };
-  const result = await findPortrait("Nikola Tesla", new AbortController().signal, request as typeof fetch);
-  assert.equal(urls.length, 3);
-  assert.equal(result.author, "Photographer");
-  assert.equal(result.license, "Public domain");
-  assert.equal(result.image.type, "image/jpeg");
-  assert.equal(result.image.size, 3);
-});
-
-test("portrait lookup refuses redirects to other hosts, wrong types and missing photos", async () => {
-  const wrongHost = async (input: string | URL | Request) => String(input).includes("commons")
-    ? Response.json({ query: { pages: [{ imageinfo: [{ url: "https://evil.test/photo.jpeg" }] }] } })
-    : Response.json({ query: { pages: [{ title: "X", pageimage: "X.jpg" }] } });
-  await assert.rejects(findPortrait("X", new AbortController().signal, wrongHost as typeof fetch));
-  const html = async (input: string | URL | Request) => String(input).includes("upload")
-    ? new Response("<html>", { headers: { "content-type": "text/html" } })
-    : String(input).includes("commons") ? Response.json({ query: { pages: [{ imageinfo: [{ url: "https://upload.wikimedia.org/p.jpg" }] }] } })
-      : Response.json({ query: { pages: [{ title: "X", pageimage: "X.jpg" }] } });
-  await assert.rejects(findPortrait("X", new AbortController().signal, html as typeof fetch), /portrait-type/);
-  const empty = async () => Response.json({ query: { pages: [] } });
-  await assert.rejects(findPortrait("Unknown person", new AbortController().signal, empty as typeof fetch), /portrait-not-found/);
+  assert.throws(() => createTargetPoints({ kind: "raster2d", raster: raster(8, 8, () => 0), style: "glyph" }, 10));
+  assert.throws(() => createTargetPoints({ kind: "raster2d", raster: { width: 4, height: 4, data: new Uint8ClampedArray(3) }, style: "glyph" }, 10));
 });

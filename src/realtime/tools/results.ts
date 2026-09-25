@@ -5,7 +5,10 @@
 export type ToolStatus =
   | "displayed" | "forming" | "returning"
   | "invalid-arguments" | "unknown-tool" | "superseded"
-  | "portrait-not-found" | "portrait-unavailable" | "unresolved";
+  | "portrait-not-found" | "portrait-unavailable"
+  | "image-not-found" | "image-unavailable"
+  | "region-not-found" | "terrain-unavailable"
+  | "unresolved";
 
 export interface ToolResult {
   ok: boolean;
@@ -19,12 +22,17 @@ export interface ToolResult {
 export const displayed = (extra: Omit<ToolResult, "ok" | "status"> = {}): ToolResult => ({ ok: true, status: "displayed", ...extra });
 export const failed = (status: Exclude<ToolStatus, "displayed" | "forming" | "returning">): ToolResult => ({ ok: false, status });
 
-const FAILURES = new Set<string>(["portrait-not-found", "portrait-unavailable", "superseded", "invalid-arguments", "unknown-tool"]);
+const FAILURES = new Set<string>([
+  "portrait-not-found", "portrait-unavailable", "image-not-found", "image-unavailable",
+  "region-not-found", "terrain-unavailable", "superseded", "invalid-arguments", "unknown-tool",
+]);
 
-/** Maps a controller failure code (e.g. from Wikimedia lookup) to a stable, model-facing status. */
+/** Maps a controller failure code (from the Visual Resolver) to a stable, model-facing status. */
 export function failureStatus(code: string | null | undefined): ToolResult {
   if (code && FAILURES.has(code)) return failed(code as Parameters<typeof failed>[0]);
-  if (code?.startsWith("portrait-") || code?.startsWith("image-")) return failed("portrait-unavailable");
+  if (code?.startsWith("portrait-")) return failed("portrait-unavailable");
+  if (code?.startsWith("image-")) return failed("image-unavailable");
+  if (code?.startsWith("terrain-") || code?.startsWith("heightfield-") || code?.startsWith("region-")) return failed("terrain-unavailable");
   return failed("unresolved");
 }
 

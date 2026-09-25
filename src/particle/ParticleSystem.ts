@@ -3,7 +3,7 @@ import { StorageInstancedBufferAttribute } from "three/webgpu";
 import { Fn, float, instanceIndex, mix, sin, storage, vec3 } from "three/tsl";
 import { SPECTRUM_BANDS } from "@/audio/spectrum";
 import type { ParticleConfig } from "@/config/particleDefaults";
-import { createTargetPoints } from "@/visual-actions/targets/points";
+import { createTargetPoints } from "@/visual-resolver/points";
 import type { MorphTarget } from "@/visual-actions/types";
 import { createSphere } from "./sphere/createSphere";
 import { createUniforms } from "./physics/uniforms";
@@ -54,7 +54,7 @@ export function createParticleSystem(capacity: number, config: ParticleConfig) {
   return {
     mesh, compute, uniforms: u, capacity,
     setTarget(value: MorphTarget) {
-      const points = createTargetPoints(value, capacity);
+      const points = createTargetPoints(value.visual, capacity);
       targetPositions.array.set(points.positions); targetPositions.needsUpdate = true;
       targetTones.array.set(points.tones); targetTones.needsUpdate = true;
     },

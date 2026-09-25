@@ -1,11 +1,13 @@
-import { SYMBOL_NAMES } from "../../visual-actions/types";
+import { IMAGE_INTENTS, SYMBOL_NAMES, TERRAIN_STYLES } from "../../visual-actions/types";
 
 /**
  * Native Realtime function tools: the AI's intentional channel to its particle body.
  * They are declared on the Realtime session and executed in the browser by SCF itself —
- * no MCP, no relay, no transcript inference. Keep the set deliberately small.
+ * no MCP, no relay, no transcript inference. Keep the set deliberately small: two open tools
+ * (show_image, show_terrain) backed by the Visual Resolver, plus a few convenience shapes.
  */
 export const VISUAL_TOOL_NAMES = [
+  "show_image", "show_terrain",
   "show_clock", "show_portrait", "show_number", "show_text", "show_symbol", "return_to_sphere",
 ] as const;
 export type VisualToolName = typeof VISUAL_TOOL_NAMES[number];
@@ -32,6 +34,28 @@ const object = (properties: RealtimeFunctionTool["parameters"]["properties"] = {
 export const visualTools: readonly RealtimeFunctionTool[] = [
   {
     type: "function",
+    name: "show_image",
+    description: "Form a picture of almost anything with your particle body: a person, vehicle, product, object, "
+      + "animal, building, place, artwork, map or a reference image of an idea. SCF searches open image sources "
+      + "for it. Use when seeing it materially helps, e.g. the user asks what something looks like or wants to see it.",
+    parameters: object({
+      query: { type: "string", description: "What to show, as a short specific search phrase, e.g. \"Tesla Model Y\", \"futuristic concept car\", \"Eiffel Tower at night\". At most 100 characters, no URLs." },
+      intent: { type: "string", enum: [...IMAGE_INTENTS], description: "What kind of picture this is; helps choose sources and framing. Default general." },
+    }, ["query"]),
+  },
+  {
+    type: "function",
+    name: "show_terrain",
+    description: "Form the terrain of a real region as a raised relief with your particle body, from real elevation data: "
+      + "mountains rise, valleys sink. Use for the terrain, topography, relief or landscape shape of a country, "
+      + "region, island, mountain range or other place.",
+    parameters: object({
+      region: { type: "string", description: "The place, e.g. \"Wales\", \"United Kingdom\", \"Swiss Alps\", \"Grand Canyon\". At most 80 characters." },
+      style: { type: "string", enum: [...TERRAIN_STYLES], description: "Shading: terrain (default), topography (contour bands), relief (strong shading), heightmap (height only)." },
+    }, ["region"]),
+  },
+  {
+    type: "function",
     name: "show_clock",
     description: "Form a clock face showing a time with your particle body. Use when seeing a time helps: "
       + "the user asks what time it is, or a specific time matters to the answer. Omit `time` to show the "
@@ -43,9 +67,9 @@ export const visualTools: readonly RealtimeFunctionTool[] = [
   {
     type: "function",
     name: "show_portrait",
-    description: "Form a portrait of a real, notable person with your particle body, from their public "
-      + "Wikipedia photo. Use when the user wants to see what someone looks like, or when a portrait "
-      + "materially helps the answer. Do not call just because a name appears in conversation.",
+    description: "Form a portrait of a real, recognizable person with your particle body, from public photos "
+      + "(Wikipedia, then other open image sources). Use when the user wants to see what someone looks like, "
+      + "or when a portrait materially helps the answer. Do not call just because a name appears in conversation.",
     parameters: object({
       person: { type: "string", description: "Full, unambiguous name of the person, e.g. \"Nikola Tesla\"." },
     }, ["person"]),

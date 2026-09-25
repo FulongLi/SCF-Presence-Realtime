@@ -1,10 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { VISUAL_TOOL_NAMES, visualTools } from "../src/realtime/tools/definitions";
-import { normalizeClockTime, parseToolArguments, toolCallToVisualAction, ToolExecutor, type VisualTarget } from "../src/realtime/tools/executor";
+import { normalizeClockTime, parseToolArguments, toolCallToVisualAction, ToolExecutor, type VisualBody } from "../src/realtime/tools/executor";
 import { failureStatus, serializeResult } from "../src/realtime/tools/results";
 import { VisualActionController, type SubmitOutcome } from "../src/visual-actions/controller";
-import { SYMBOL_NAMES, type MorphTarget, type VisualAction } from "../src/visual-actions/types";
+import { IMAGE_INTENTS, SYMBOL_NAMES, TERRAIN_STYLES, type MorphTarget, type VisualAction } from "../src/visual-actions/types";
+import { PRESENCE_INSTRUCTIONS } from "../src/realtime/instructions";
 
 test("the native tool set is small, fully described and strict", () => {
   assert.deepEqual(visualTools.map(tool => tool.name), [...VISUAL_TOOL_NAMES]);
@@ -57,7 +58,7 @@ test("clock times from the model are normalized only when unambiguous", () => {
 
 function executor(outcome: (action: VisualAction) => Promise<SubmitOutcome>, lastFailure: string | null = null, budgetMs = 50) {
   const submitted: VisualAction[] = [];
-  const visual: VisualTarget = { submit: action => { submitted.push(action); return outcome(action); }, lastFailure };
+  const visual: VisualBody = { submit: action => { submitted.push(action); return outcome(action); }, lastFailure };
   const run = new ToolExecutor(visual, {
     budgetMs, now: () => new Date(2026, 8, 24, 21, 7), timeZone: () => "Europe/London",
   });
@@ -97,12 +98,13 @@ test("executor: a missing portrait fails cleanly; a slow one reports forming wit
   assert.deepEqual((await slow.run.execute("show_portrait", "{\"person\":\"Nikola Tesla\"}")).result, { ok: true, status: "forming" });
   const replaced = executor(async () => "cancelled");
   assert.deepEqual((await replaced.run.execute("show_text", "{\"value\":\"Paris\"}")).result, { ok: false, status: "superseded" });
-  assert.deepEqual(failureStatus("image-too-large"), { ok: false, status: "portrait-unavailable" });
+  assert.deepEqual(failureStatus("portrait-too-large"), { ok: false, status: "portrait-unavailable" });
+  assert.deepEqual(failureStatus("image-too-large"), { ok: false, status: "image-unavailable" });
   assert.deepEqual(failureStatus("canvas-unavailable"), { ok: false, status: "unresolved" });
 });
 
 test("executor drives the real VisualActionController: sphere → visual → sphere", async () => {
-  const target: MorphTarget = { raster: { width: 4, height: 4, data: new Uint8ClampedArray(64).fill(255) }, style: "glyph", hold: 1, label: "42%" };
+  const target: MorphTarget = { visual: { kind: "raster2d", raster: { width: 4, height: 4, data: new Uint8ClampedArray(64).fill(255) }, style: "glyph" }, hold: 1, label: "42%" };
   const controller = new VisualActionController(async () => target);
   const run = new ToolExecutor(controller, { budgetMs: 100, now: () => new Date(), timeZone: () => "UTC" });
   assert.equal((await run.execute("show_number", "{\"value\":\"42%\"}")).result.status, "displayed");
@@ -112,4 +114,55 @@ test("executor drives the real VisualActionController: sphere → visual → sph
   for (let i = 0; i < 60 * 2; i++) controller.sample(1 / 60);
   assert.equal(controller.phase, "sphere");
   assert.equal(controller.level, 0);
+});
+
+test("show_image and show_terrain: open queries map onto validated image and terrain actions", () => {
+  assert.deepEqual(toolCallToVisualAction("show_image", { query: " Tesla   Model Y ", intent: "vehicle" }), { type: "image", query: "Tesla Model Y", intent: "vehicle" });
+  assert.deepEqual(toolCallToVisualAction("show_image", { query: "futuristic concept car" }), { type: "image", query: "futuristic concept car" });
+  assert.deepEqual(toolCallToVisualAction("show_image", { query: "Taylor Swift", intent: "Celebrity" }), { type: "image", query: "Taylor Swift", intent: "celebrity" });
+  assert.deepEqual(toolCallToVisualAction("show_image", { query: "Node.js logo", intent: "person" }), { type: "image", query: "Node.js logo" }, "an unknown intent is only a hint");
+  assert.deepEqual(toolCallToVisualAction("show_image", { query: "埃菲尔铁塔", intent: null }), { type: "image", query: "埃菲尔铁塔" });
+  assert.deepEqual(toolCallToVisualAction("show_terrain", { region: "Wales", style: "terrain" }), { type: "terrain", region: "Wales", style: "terrain" });
+  assert.deepEqual(toolCallToVisualAction("show_terrain", { region: "United Kingdom", style: "topography" }), { type: "terrain", region: "United Kingdom", style: "topography" });
+  assert.deepEqual(toolCallToVisualAction("show_terrain", { region: "Swiss Alps" }), { type: "terrain", region: "Swiss Alps" });
+  const rejected: [Parameters<typeof toolCallToVisualAction>[0], Record<string, unknown>][] = [
+    ["show_image", {}], ["show_image", { query: "" }], ["show_image", { query: 42 }], ["show_image", { query: "x".repeat(101) }],
+    ["show_image", { query: "https://evil.test/a.jpg" }], ["show_image", { query: "<img src=x onerror=alert(1)>" }],
+    ["show_image", { query: "javascript:alert(1)" }], ["show_image", { query: "cat", url: "https://evil.test" }],
+    ["show_image", { query: "cat", intent: 3 }], ["show_image", { query: "bad‮text" }], ["show_image", { query: "..." }],
+    ["show_terrain", {}], ["show_terrain", { region: "www.evil.test" }], ["show_terrain", { region: "Wales", style: 1 }],
+    ["show_terrain", { region: "Wales", zoom: 12 }], ["show_terrain", { region: "x".repeat(81) }],
+  ];
+  for (const [name, args] of rejected) assert.equal(toolCallToVisualAction(name, args), null, `${name} ${JSON.stringify(args)}`);
+});
+
+test("executor: show_image and show_terrain report concise results, including their failures", async () => {
+  const shown = executor(async () => "queued");
+  assert.deepEqual((await shown.run.execute("show_image", "{\"query\":\"Tesla Model Y\",\"intent\":\"vehicle\"}")).result, { ok: true, status: "displayed" });
+  assert.deepEqual((await shown.run.execute("show_terrain", "{\"region\":\"Wales\"}")).result, { ok: true, status: "displayed" });
+  assert.deepEqual(shown.submitted, [{ type: "image", query: "Tesla Model Y", intent: "vehicle" }, { type: "terrain", region: "Wales" }]);
+  for (const [name, args, code] of [
+    ["show_image", "{\"query\":\"Qwxyzzy\"}", "image-not-found"], ["show_image", "{\"query\":\"cat\"}", "image-unavailable"],
+    ["show_terrain", "{\"region\":\"Narnia\"}", "region-not-found"], ["show_terrain", "{\"region\":\"Wales\"}", "terrain-unavailable"],
+  ] as const) {
+    const run = executor(async () => "failed", code);
+    assert.deepEqual((await run.run.execute(name, args)).result, { ok: false, status: code });
+  }
+  const slow = executor(() => new Promise(() => {}), null, 20);
+  assert.deepEqual((await slow.run.execute("show_terrain", "{\"region\":\"United Kingdom\"}")).result, { ok: true, status: "forming" });
+  assert.deepEqual(failureStatus("heightfield-empty"), { ok: false, status: "terrain-unavailable" });
+  assert.deepEqual((await shown.run.execute("show_image", "{\"query\":\"<script>\"}")).result, { ok: false, status: "invalid-arguments" });
+});
+
+test("the open tools lead the tool set and say what they can show", () => {
+  const image = visualTools.find(tool => tool.name === "show_image")!;
+  const terrain = visualTools.find(tool => tool.name === "show_terrain")!;
+  assert.deepEqual(image.parameters.required, ["query"]);
+  assert.deepEqual(image.parameters.properties.intent.enum, [...IMAGE_INTENTS]);
+  assert.deepEqual(terrain.parameters.required, ["region"]);
+  assert.deepEqual(terrain.parameters.properties.style.enum, [...TERRAIN_STYLES]);
+  assert.match(image.description, /person, vehicle, product, object/);
+  assert.equal(VISUAL_TOOL_NAMES.length, 8, "two open tools plus six convenience tools; no per-object tools");
+  assert.match(PRESENCE_INSTRUCTIONS, /not limited to a small fixed vocabulary/);
+  assert.match(PRESENCE_INSTRUCTIONS, /Never mention tools/);
 });

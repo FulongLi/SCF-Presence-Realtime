@@ -1,19 +1,21 @@
-import type { Raster, SymbolName } from "../types";
+import type { SymbolName, VisualAction } from "../../visual-actions/types";
+import { canvas, readCanvas } from "../transforms/raster";
+import type { Raster } from "../types";
 
-// Browser-only rasterization. Rasters are sampled into particle positions; nothing is drawn on screen.
+/**
+ * Constructed visuals: text, numbers, clocks and symbols drawn on a canvas (browser only).
+ * Rasters are sampled into particle positions; nothing is drawn on screen.
+ */
 const FONT = '600 {size}px "SF Pro Rounded", ui-rounded, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans SC", sans-serif';
 
-function canvas(width: number, height: number) {
-  const element = document.createElement("canvas");
-  element.width = width; element.height = height;
-  const context = element.getContext("2d", { willReadFrequently: true });
-  if (!context) throw new Error("canvas-unavailable");
-  return context;
+const pad = (value: number) => String(value).padStart(2, "0");
+
+/** The time a clock action should show: explicit time, else timestamp in local time, else now. */
+export function clockText(action: Extract<VisualAction, { type: "clock" }>, now = new Date()) {
+  if (action.time) return action.time;
+  const date = action.timestamp !== undefined ? new Date(action.timestamp) : now;
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
-const read = (context: CanvasRenderingContext2D): Raster => {
-  const pixels = context.getImageData(0, 0, context.canvas.width, context.canvas.height);
-  return { width: pixels.width, height: pixels.height, data: pixels.data };
-};
 
 /** A single line of text, fitted to at most 360 × 150 pixels. */
 export function rasterizeText(text: string): Raster {
@@ -28,13 +30,12 @@ export function rasterizeText(text: string): Raster {
   context.textAlign = "center";
   context.textBaseline = "middle";
   context.fillText(text, context.canvas.width / 2, context.canvas.height / 2 + size * 0.04);
-  return read(context);
+  return readCanvas(context);
 }
 
 /** Symbols are drawn as paths so they never depend on installed symbol fonts. */
 export function rasterizeSymbol(name: SymbolName): Raster {
-  const context = canvas(160, 160);
-  const c = context;
+  const c = canvas(160, 160);
   c.fillStyle = c.strokeStyle = "#fff";
   c.lineWidth = 20; c.lineCap = "round"; c.lineJoin = "round";
   const line = (...points: number[]) => {
@@ -66,20 +67,5 @@ export function rasterizeSymbol(name: SymbolName): Raster {
       c.font = FONT.replace("{size}", "132"); c.textAlign = "center"; c.textBaseline = "middle";
       c.fillText(name === "question" ? "?" : "!", 80, 86); break;
   }
-  return read(context);
-}
-
-const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
-/** Decodes a photo locally into a small raster. The image never leaves the browser. */
-export async function decodeImage(blob: Blob): Promise<Raster> {
-  if (blob.size > 6 * 1024 * 1024) throw new Error("image-too-large");
-  if (blob.type && !IMAGE_TYPES.includes(blob.type)) throw new Error("image-type");
-  const bitmap = await createImageBitmap(blob);
-  try {
-    if (bitmap.width * bitmap.height > 40_000_000) throw new Error("image-too-large");
-    const scale = Math.min(1, 320 / Math.max(bitmap.width, bitmap.height));
-    const context = canvas(Math.max(2, Math.round(bitmap.width * scale)), Math.max(2, Math.round(bitmap.height * scale)));
-    context.drawImage(bitmap, 0, 0, context.canvas.width, context.canvas.height);
-    return read(context);
-  } finally { bitmap.close(); }
+  return readCanvas(c);
 }

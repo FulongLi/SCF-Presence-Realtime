@@ -1,4 +1,4 @@
-import { SYMBOL_NAMES, type SymbolName, type VisualAction } from "./types";
+import { IMAGE_INTENTS, SYMBOL_NAMES, TERRAIN_STYLES, type ImageIntent, type SymbolName, type TerrainStyle, type VisualAction } from "./types";
 
 const record = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype;
@@ -10,17 +10,26 @@ export const CLOCK_TIME = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 const NUMBER = /^[+\-−]?\p{Sc}?\d[\d.,:/ ]*(?:%|°[CF]?|\p{Sc})?$/u;
 const TEXT = /^[\p{L}\p{M}\p{N} .,!?'’\-&·:()]+$/u;
 const PERSON = /^[\p{L}\p{M} .'’·\-]+$/u;
+/** Free-text visual queries: words, numbers and ordinary punctuation. No markup, URLs or code. */
+const QUERY = /^[\p{L}\p{M}\p{N} .,'’·\-&()/:+#!?"]+$/u;
+const LINKISH = /(?:\/\/|www\.|\b(?:javascript|data|file|https?):(?!\s))/i;
+
+/** Open text for image queries and terrain regions: generous, but never markup, a URL or control text. */
+export function validQuery(value: unknown, max: number): value is string {
+  return typeof value === "string" && value === value.trim() && value.length > 0 && Array.from(value).length <= max
+    && QUERY.test(value) && !LINKISH.test(value) && !CONTROL.test(value) && /[\p{L}\p{N}]/u.test(value);
+}
 
 export function validPerson(value: unknown): value is string {
   return typeof value === "string" && value === value.trim() && value.length > 0 && value.length <= 60
     && PERSON.test(value) && !CONTROL.test(value);
 }
 
-/** Portrait images may only come from Wikimedia's upload host, over HTTPS, without credentials or ports. */
+/** Portrait image URLs may only point at Wikimedia's image hosts, over HTTPS, without credentials or ports. */
 export function allowedImageURL(value: string) {
   if (value.length > 600) throw new Error("image-url-rejected");
   const url = new URL(value);
-  if (url.protocol !== "https:" || url.hostname !== "upload.wikimedia.org" || url.port || url.username || url.password
+  if (url.protocol !== "https:" || !["upload.wikimedia.org", "thumb.wikimedia.org"].includes(url.hostname) || url.port || url.username || url.password
     || !/\.(?:jpe?g|png|webp)$/i.test(url.pathname)) throw new Error("image-url-rejected");
   return url;
 }
@@ -74,6 +83,20 @@ export function validateVisualAction(value: unknown): VisualAction | null {
         try { action.imageUrl = allowedImageURL(value.imageUrl).href; } catch { return null; }
       }
       return action.person || action.imageUrl ? action : null;
+    }
+    case "image": {
+      if (!onlyKeys(value, ["type", "query", "intent"])) return null;
+      const query = typeof value.query === "string" ? value.query.trim().replace(/\s+/g, " ") : value.query;
+      if (!validQuery(query, 100)) return null;
+      if (value.intent !== undefined && !IMAGE_INTENTS.includes(value.intent as ImageIntent)) return null;
+      return value.intent === undefined ? { type: "image", query } : { type: "image", query, intent: value.intent as ImageIntent };
+    }
+    case "terrain": {
+      if (!onlyKeys(value, ["type", "region", "style"])) return null;
+      const region = typeof value.region === "string" ? value.region.trim().replace(/\s+/g, " ") : value.region;
+      if (!validQuery(region, 80)) return null;
+      if (value.style !== undefined && !TERRAIN_STYLES.includes(value.style as TerrainStyle)) return null;
+      return value.style === undefined ? { type: "terrain", region } : { type: "terrain", region, style: value.style as TerrainStyle };
     }
     default:
       return null;

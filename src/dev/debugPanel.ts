@@ -4,8 +4,7 @@ import { qualityTiers } from "@/particle/quality";
 import type { PresenceController } from "@/presence/controller";
 import { PRESENCE_MODES, type PresenceMode } from "@/presence/signal";
 import { sessionPhase } from "@/realtime/state";
-import { localPortrait } from "@/visual-actions/resolve";
-import { SYMBOL_NAMES } from "@/visual-actions/types";
+import { IMAGE_INTENTS, SYMBOL_NAMES, TERRAIN_STYLES } from "@/visual-actions/types";
 import { validateVisualAction } from "@/visual-actions/validate";
 
 /**
@@ -15,7 +14,7 @@ import { validateVisualAction } from "@/visual-actions/validate";
 export function attachDebugPanel(container: HTMLElement, { controller, runtime }: {
   controller: PresenceController; runtime: () => RuntimeHandle | null;
 }) {
-  const { engine, visual, client, executor, assistant } = controller;
+  const { engine, visual, client, executor, assistant, resolver } = controller;
   const panel = document.createElement("aside");
   panel.className = "debug-panel";
   // Clicks inside the panel are not conversation gestures and must not move particles.
@@ -58,10 +57,38 @@ export function attachDebugPanel(container: HTMLElement, { controller, runtime }
   const runTool = (name: string, args: unknown) => void executor.execute(name, JSON.stringify(args))
     .then(result => { lastManual = `${name} ${JSON.stringify(args)} → ${JSON.stringify(result.result)} (${result.ms} ms)`; });
   let lastManual = "";
-  button("show_clock()", toolRow, () => runTool("show_clock", {}));
-  button("show_portrait(Tesla)", toolRow, () => runTool("show_portrait", { person: "Nikola Tesla" }));
-  button("show_number(42%)", toolRow, () => runTool("show_number", { value: "42%" }));
-  button("bad args", toolRow, () => runTool("show_text", { value: "<script>" }));
+  // The manual acceptance set: the resolver and body without depending on what the model decides.
+  const manual: [string, string, Record<string, unknown>][] = [
+    ["portrait: Nikola Tesla", "show_portrait", { person: "Nikola Tesla" }],
+    ["image: Tesla Model Y", "show_image", { query: "Tesla Model Y", intent: "vehicle" }],
+    ["image: Taylor Swift", "show_image", { query: "Taylor Swift", intent: "celebrity" }],
+    ["image: concept car", "show_image", { query: "futuristic concept car", intent: "reference" }],
+    ["terrain: Wales", "show_terrain", { region: "Wales", style: "terrain" }],
+    ["terrain: United Kingdom", "show_terrain", { region: "United Kingdom", style: "topography" }],
+    ["clock", "show_clock", {}],
+    ["text: Hello", "show_text", { value: "Hello" }],
+    ["number: 42%", "show_number", { value: "42%" }],
+    ["symbol: check", "show_symbol", { symbol: "check" }],
+    ["sphere", "return_to_sphere", {}],
+    ["bad args", "show_text", { value: "<script>" }],
+  ];
+  for (const [label, name, args] of manual) button(label, toolRow, () => runTool(name, args));
+  const imageRow = el("div", "", tools);
+  const query = el("input", "", imageRow);
+  query.placeholder = "image query"; query.value = "wind turbine";
+  const intent = el("select", "", imageRow);
+  for (const name of IMAGE_INTENTS) { const option = el("option", name, intent); option.value = name; }
+  intent.value = "general";
+  button("show_image", imageRow, () => runTool("show_image", { query: query.value.trim(), intent: intent.value }));
+  const terrainRow = el("div", "", tools);
+  const region = el("input", "", terrainRow);
+  region.placeholder = "region"; region.value = "Swiss Alps";
+  const terrainStyle = el("select", "", terrainRow);
+  for (const name of TERRAIN_STYLES) { const option = el("option", name, terrainStyle); option.value = name; }
+  button("show_terrain", terrainRow, () => runTool("show_terrain", { region: region.value.trim(), style: terrainStyle.value }));
+
+  const resolving = section("visual resolver", true);
+  const resolverOut = el("output", "", resolving);
 
   const actions = section("visual actions (direct)", true);
   const submit = (action: unknown) => {
@@ -80,11 +107,15 @@ export function attachDebugPanel(container: HTMLElement, { controller, runtime }
   const person = el("input", "", actions);
   person.value = "Nikola Tesla";
   button("portrait", actions, () => submit({ type: "portrait", person: person.value.trim() }));
+  // A local file never leaves the device: as a portrait, an object, or a grayscale heightmap (2.5D).
+  const localAs = el("select", "", actions);
+  for (const name of ["portrait", "object", "heightmap"]) { const option = el("option", `local file as ${name}`, localAs); option.value = name; }
   const photo = el("input", "", actions);
   photo.type = "file"; photo.accept = "image/jpeg,image/png,image/webp";
   photo.addEventListener("change", () => {
     const file = photo.files?.[0];
-    if (file) void localPortrait(file, file.name).then(target => visual.show(target), error => console.warn(error));
+    const as = localAs.value as "portrait" | "object" | "heightmap";
+    if (file) void resolver.local(file, file.name, as).then(target => visual.show(target), error => console.warn(error));
     photo.value = "";
   });
 
@@ -172,6 +203,17 @@ export function attachDebugPanel(container: HTMLElement, { controller, runtime }
       last?.result ? `result ${JSON.stringify(last.result)}${last.ms !== undefined ? ` (${last.ms} ms)` : ""}` : last ? "result pending" : "",
       lastManual ? `manual ${lastManual}` : "",
     ].filter(Boolean).join("\n");
+    const trace = resolver.lastTrace;
+    resolverOut.textContent = trace ? [
+      `${trace.action}${trace.query ? ` "${trace.query}"` : ""}${trace.intent ? ` · ${trace.intent}` : ""} → ${trace.status}${trace.error ? ` (${trace.error})` : ""}`,
+      ...trace.chain.map((step, index) => `  ${index + 1}. ${step.provider}: ${step.outcome} · ${step.ms} ms`),
+      trace.provider ? `provider ${trace.provider}${trace.sourceType ? ` · ${trace.sourceType}` : ""}` : "",
+      trace.source ? `source ${trace.source.slice(0, 140)}` : "",
+      trace.targetType ? `target ${trace.targetType}${trace.raster ? ` · raster ${trace.raster.width}×${trace.raster.height}` : ""}` : "",
+      trace.field ? `height field ${trace.field.width}×${trace.field.height} · normalized ${fixed(trace.field.min)}–${fixed(trace.field.max)}`
+        + (trace.field.elevation ? ` · ${trace.field.elevation.min}–${trace.field.elevation.max} m` : "") : "",
+      `fetch ${trace.fetchMs} ms · resolve ${trace.resolveMs ?? "…"} ms`,
+    ].filter(Boolean).join("\n") : "—";
     const q = handle?.quality();
     if (q) tier.value = String(q.tier);
     presenceOut.textContent = [
