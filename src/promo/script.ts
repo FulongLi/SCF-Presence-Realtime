@@ -59,8 +59,8 @@ export const DIALOGUE: Record<LineId, DialogueLine> = {
   "clock.assistant": { speaker: "assistant", text: "It’s 6:42.", speech: "It's six forty-two.", direction: `${ASSISTANT_VOICE} Clear and effortless.`, nominal: 1.05 },
   "identity.user": { speaker: "user", text: "Who made you?", speech: "Who made you?", direction: `${USER_VOICE} Genuinely curious, gentle.`, nominal: 0.85 },
   "identity.assistant": {
-    speaker: "assistant", text: "Spirit Connect.", speech: "Spirit Connect.",
-    direction: `${ASSISTANT_VOICE} Understated pride, clear and warm.`, nominal: 0.95,
+    speaker: "assistant", text: "Fulong, from Spirit Connect.", speech: "Fulong, from Spirit Connect.",
+    direction: `${ASSISTANT_VOICE} Understated pride, clear and warm. Say the name "Fulong" as "FOO-long", with a small natural pause after it.`, nominal: 1.65,
   },
 };
 
