@@ -15,7 +15,7 @@ export const FILM = {
 export const COPY = {
   question: "What if AI could have a presence?",
   caption: "Information becomes form.",
-  title: "SCF Presence",
+  title: "Intelligence Presence",
   tagline: "One voice. One body. Infinite forms.",
   maker: "Spirit Connect",
 } as const;

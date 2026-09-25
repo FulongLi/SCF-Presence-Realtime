@@ -90,7 +90,7 @@ test("the caption lives on the formed terrain, the question on the formed body, 
 });
 
 test("only the principal editorial lines appear, and subtitles follow the dialogue", () => {
-  assert.deepEqual(Object.values(COPY), ["What if AI could have a presence?", "Information becomes form.", "SCF Presence", "One voice. One body. Infinite forms.", "Spirit Connect"]);
+  assert.deepEqual(Object.values(COPY), ["What if AI could have a presence?", "Information becomes form.", "Intelligence Presence", "One voice. One body. Infinite forms.", "Spirit Connect"]);
   const timeline = compileTimeline();
   const line = timeline.lines[0];
   assert.equal(lineAt(timeline, line.start + 0.1)?.id, line.id);
