@@ -13,6 +13,10 @@ const config: NextConfig = {
         { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
         { key: "X-Content-Type-Options", value: "nosniff" },
       ],
+    }, {
+      // Curated brand assets are pictures, not documents: an SVG opened directly may not run script or load anything.
+      source: "/assets/:path*",
+      headers: [{ key: "Content-Security-Policy", value: "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox" }],
     }];
   },
 };

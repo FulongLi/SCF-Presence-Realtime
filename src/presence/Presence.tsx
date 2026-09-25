@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ParticleScene } from "@/particle/ParticleScene";
 import type { RuntimeHandle, RuntimeInputs } from "@/particle/ParticleRuntime";
+import { DEFAULT_VOICE_BACKEND, resolveVoiceBackend, type VoiceBackend } from "@/voice/backend";
 import { PresenceController } from "./controller";
 import { StageNotice } from "./StageNotice";
 import { stringsFor } from "./strings";
@@ -18,10 +19,13 @@ const subscribeLanguage = (callback: () => void) => {
  * There is no chat panel or dashboard; the body is the interface. Only first-run setup and
  * connection problems ever put words on the stage.
  */
-export default function Presence() {
+export default function Presence({ configuredBackend = null }: {
+  /** SCF_VOICE_BACKEND from the server; `?voice=realtime|live` overrides it for A/B testing. */
+  configuredBackend?: VoiceBackend | null;
+}) {
   const language = useSyncExternalStore(subscribeLanguage, () => navigator.language, () => "en");
   const t = stringsFor(language);
-  const [controller] = useState(() => new PresenceController());
+  const [controller] = useState(() => new PresenceController(undefined, configuredBackend ?? DEFAULT_VOICE_BACKEND));
   const ui = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getServerSnapshot);
   const [inputs] = useState<RuntimeInputs>(() => ({ presence: controller.engine, morph: controller.visual }));
   const [graphicsError, setGraphicsError] = useState<string | null>(null);
@@ -29,6 +33,7 @@ export default function Presence() {
   const runtime = useRef<RuntimeHandle | null>(null);
 
   useEffect(() => {
+    controller.setBackend(resolveVoiceBackend(location.search, configuredBackend));
     controller.start();
     const gesture = () => controller.gesture();
     document.addEventListener("pointerdown", gesture);
@@ -38,9 +43,9 @@ export default function Presence() {
       document.removeEventListener("keydown", gesture);
       controller.stop();
     };
-  }, [controller]);
+  }, [controller, configuredBackend]);
 
-  // Development diagnostics (?debug=1). Independent of WebGPU, so Realtime can be inspected without graphics.
+  // Development diagnostics (?debug=1). Independent of WebGPU, so the voice session can be inspected without graphics.
   useEffect(() => {
     const container = stage.current;
     if (!DEBUG_BUILD || new URLSearchParams(location.search).get("debug") !== "1" || !container) return;

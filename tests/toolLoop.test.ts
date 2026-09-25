@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { ToolCallLoop, type ToolRunner } from "../src/realtime/conversation";
 import { parseServerEvent, type ClientEvent } from "../src/realtime/events";
-import type { ToolExecution } from "../src/realtime/tools/executor";
+import type { ToolExecution } from "../src/voice/tools/executor";
 
 const settle = () => new Promise(resolve => setImmediate(resolve));
 const server = (value: unknown) => parseServerEvent(JSON.stringify(value));

@@ -36,21 +36,31 @@ function pickCell(distribution: Float64Array, pick: number) {
  * - object: density follows what differs from the background (with a little luminance and edge), so a
  *   dark car on a white floor is drawn as the car, not as the floor; photographic tones.
  * - glyph: alpha-weighted density with edge emphasis, a thin volumetric slab and even tones.
+ * - logo: like glyph (alpha silhouette, no vignette, thin slab), with even density, strong outline and
+ *   colour-boundary edges so inner details of a mark survive, and tones from the mark's own contrast.
  */
 function rasterPoints(target: Raster2DTarget, count: number): TargetPoints {
   const image = target.raster;
   validateRaster(image);
   const { width, height, data } = image;
   const { style } = target;
-  const glyph = style === "glyph";
+  const glyph = style === "glyph", logo = style === "logo";
   const length = width * height;
   const tone = new Float32Array(length), distribution = new Float64Array(length);
   const subject = style === "object" ? subjectMap(image) : null;
   let total = 0;
-  for (let i = 0; i < length; i++) tone[i] = glyph ? data[i * 4 + 3] / 255 : luminance(data, i);
+  for (let i = 0; i < length; i++) tone[i] = glyph || logo ? data[i * 4 + 3] / 255 : luminance(data, i);
+  // Logo tones come from the mark's own luminance range; a one-colour mark gets even light like a glyph.
+  let lumLow = 1, lumHigh = 0;
+  if (logo) for (let i = 0; i < length; i++) if (tone[i] > 0.35) { const l = luminance(data, i); lumLow = Math.min(lumLow, l); lumHigh = Math.max(lumHigh, l); }
+  const lumSpread = lumHigh - lumLow;
   for (let i = 0; i < length; i++) {
     const edge = Math.abs(tone[i] - tone[Math.max(0, i - 1)]) + Math.abs(tone[i] - tone[Math.max(0, i - width)]);
-    if (glyph) {
+    if (logo) {
+      const l = luminance(data, i);
+      const inner = Math.abs(l - luminance(data, Math.max(0, i - 1))) + Math.abs(l - luminance(data, Math.max(0, i - width)));
+      total += tone[i] > 0.35 ? 1 + edge * 1.5 + inner * 1.2 : 0;
+    } else if (glyph) {
       total += tone[i] > 0.35 ? Math.pow(tone[i], 1.5) + edge * 0.6 : 0;
     } else {
       const x = ((i % width) / (width - 1) - 0.5) * 2;
@@ -72,9 +82,9 @@ function rasterPoints(target: Raster2DTarget, count: number): TargetPoints {
   const positions = new Float32Array(count * 3), tones = new Float32Array(count);
   const aspect = width / height;
   // Portraits are sized by height; glyph rows and objects by width so wide things stay large.
-  const h = glyph ? Math.min(2, 3.2 / aspect) : style === "object" ? Math.min(3.3, 3.5 / aspect) : 3.6 / Math.max(1, aspect);
+  const h = glyph ? Math.min(2, 3.2 / aspect) : logo ? Math.min(2.6, 3.4 / aspect) : style === "object" ? Math.min(3.3, 3.5 / aspect) : 3.6 / Math.max(1, aspect);
   const w = h * aspect;
-  const next = random(glyph ? 0x61f7 : 0x7e51a);
+  const next = random(glyph ? 0x61f7 : logo ? 0x10a0 : 0x7e51a);
   for (let i = 0; i < count; i++) {
     const cell = pickCell(distribution, next() * total);
     const x = ((cell % width + next()) / width - 0.5) * w;
@@ -84,6 +94,9 @@ function rasterPoints(target: Raster2DTarget, count: number): TargetPoints {
       // A shallow slab gives letters body without blurring their outline from the front.
       positions.set([x, y, (next() - 0.5) * 0.16], i * 3);
       tones[i] = 0.62 + next() * 0.3;
+    } else if (logo) {
+      positions.set([x, y, (next() - 0.5) * 0.12], i * 3);
+      tones[i] = lumSpread < 0.15 ? 0.66 + next() * 0.26 : 0.34 + 0.6 * (luminance(data, cell) - lumLow) / lumSpread;
     } else {
       // Shallow relief only: luminance is not reconstructed depth.
       positions.set([x, y, (value - 0.5) * 0.17 + (next() - 0.5) * 0.07], i * 3);

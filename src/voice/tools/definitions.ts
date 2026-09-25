@@ -1,10 +1,12 @@
 import { IMAGE_INTENTS, SYMBOL_NAMES, TERRAIN_STYLES } from "../../visual-actions/types";
 
 /**
- * Native Realtime function tools: the AI's intentional channel to its particle body.
- * They are declared on the Realtime session and executed in the browser by SCF itself —
- * no MCP, no relay, no transcript inference. Keep the set deliberately small: two open tools
- * (show_image, show_terrain) backed by the Visual Resolver, plus a few convenience shapes.
+ * SCF's visual function tools: the AI's intentional channel to its particle body. This is the one
+ * canonical definition for every voice backend — declared on the Realtime session (`session.tools`)
+ * and on GPT-Live's Responses backend (`delegation.responses.tools`) — and every call is executed in
+ * the browser by the same ToolExecutor. No MCP, no relay, no transcript inference. Keep the set
+ * deliberately small: two open tools (show_image, show_terrain) backed by the Visual Resolver, plus a
+ * few convenience shapes.
  */
 export const VISUAL_TOOL_NAMES = [
   "show_image", "show_terrain",
@@ -15,8 +17,11 @@ export type VisualToolName = typeof VISUAL_TOOL_NAMES[number];
 export const isVisualToolName = (name: unknown): name is VisualToolName =>
   typeof name === "string" && (VISUAL_TOOL_NAMES as readonly string[]).includes(name);
 
-/** GA Realtime function tool shape (session.tools[]). */
-export interface RealtimeFunctionTool {
+/**
+ * A function tool. The same shape is accepted by GA Realtime (`session.tools[]`) and by the Responses
+ * function schema GPT-Live uses for `delegation.responses.tools[]`.
+ */
+export interface VisualFunctionTool {
   type: "function";
   name: VisualToolName;
   description: string;
@@ -28,18 +33,19 @@ export interface RealtimeFunctionTool {
   };
 }
 
-const object = (properties: RealtimeFunctionTool["parameters"]["properties"] = {}, required: string[] = []) =>
+const object = (properties: VisualFunctionTool["parameters"]["properties"] = {}, required: string[] = []) =>
   ({ type: "object" as const, properties, required, additionalProperties: false as const });
 
-export const visualTools: readonly RealtimeFunctionTool[] = [
+export const visualTools: readonly VisualFunctionTool[] = [
   {
     type: "function",
     name: "show_image",
     description: "Form a picture of almost anything with your particle body: a person, vehicle, product, object, "
-      + "animal, building, place, artwork, map or a reference image of an idea. SCF searches open image sources "
-      + "for it. Use when seeing it materially helps, e.g. the user asks what something looks like or wants to see it.",
+      + "animal, building, place, artwork, logo, map or a reference image of an idea. SCF first checks its curated local "
+      + "assets (such as the Spirit Connect company logo), then searches open image sources. Use when seeing it "
+      + "materially helps, e.g. the user asks what something looks like or wants to see it.",
     parameters: object({
-      query: { type: "string", description: "What to show, as a short specific search phrase, e.g. \"Tesla Model Y\", \"futuristic concept car\", \"Eiffel Tower at night\". At most 100 characters, no URLs." },
+      query: { type: "string", description: "What to show, as a short specific search phrase, e.g. \"Tesla Model Y\", \"futuristic concept car\", \"Eiffel Tower at night\", \"Spirit Connect logo\". At most 100 characters, no URLs." },
       intent: { type: "string", enum: [...IMAGE_INTENTS], description: "What kind of picture this is; helps choose sources and framing. Default general." },
     }, ["query"]),
   },

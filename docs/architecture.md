@@ -7,11 +7,29 @@ One test decides every design choice here: **does this make SCF feel like one AI
 ```text
 src/
   app/
-    page.tsx, layout.tsx, globals.css
-    api/realtime/token/route.ts   server-only: POST → ephemeral client secret
+    page.tsx, layout.tsx, globals.css   page reads SCF_VOICE_BACKEND per request
+    api/realtime/token/route.ts   server-only: POST → ephemeral client secret (Realtime)
+    api/live/session/route.ts     server-only: POST SDP offer → GPT-Live session → SDP answer
     api/visual/image/route.ts     optional, server-only: keyed web image search (off without a key)
   server/realtimeToken.ts         pure token logic (origin check, safety id, upstream call)
+  server/liveSession.ts           pure GPT-Live session creation (same key, origin check, safety id)
   server/imageSearch.ts           pure keyed-image-search logic (Brave; fixed thumbnail host)
+  voice/                          what both backends share
+    backend.ts                    VoiceBackend = "realtime" | "live"; ?voice= → SCF_VOICE_BACKEND → realtime
+    client.ts                     VoiceClient: the small interface PresenceController drives
+    webrtc.ts                     PeerLike / ChannelLike (mockable WebRTC shapes)
+    visualGuidance.ts             visual-body and visual-tool rules shared by both prompts
+    tools/definitions.ts          the eight visual function tools (two open, six convenience): one schema
+    tools/executor.ts             args → VisualAction → validate → VisualActionController (one executor)
+    tools/results.ts              concise function_call_output payloads
+  live/                           GPT-Live adapter (separate protocol, nothing shared with realtime/ events)
+    session.ts                    Live session config: model, voice prompt, Responses delegation + tools
+    instructions.ts               the short voice prompt and the backend prompt
+    client.ts                     LiveClient: WebRTC, ICE gathering, session.started, graceful close, reconnect
+    transport.ts                  browser environment: SDP offer → /api/live/session
+    events.ts                     normalizes Live events and nested response.event; client event types
+    delegation.ts                 LiveDelegationLoop: Responses function calls → executor → results → continue
+    state.ts                      Live state reducer + full-duplex Presence hints + phase
   realtime/
     session.ts                    GA session config (model, voice, VAD, tools, instructions)
     instructions.ts               the agent prompt ("SCF is your visual body")
@@ -21,15 +39,12 @@ src/
     state.ts                      small state reducer + Presence hints + session phase
     conversation.ts               ToolCallLoop: the function-calling lifecycle
     identity.ts                   anonymous installation id (for the hashed safety identifier)
-    tools/definitions.ts          the eight native function tools (two open, six convenience)
-    tools/executor.ts             args → VisualAction → validate → VisualActionController
-    tools/results.ts              concise function_call_output payloads
   audio/
     microphone/                   MicrophoneListener (track clone), VAD, emphasis
     assistant.ts                  remote track: <audio> playback + analyser
     analyser.ts, spectrum.ts      RMS envelope, 16 log-spaced bands
   presence/
-    controller.ts                 PresenceController: owns the whole voice ⇄ body loop
+    controller.ts                 PresenceController: owns the voice ⇄ body loop; active backend, switching, timings
     Presence.tsx, StageNotice.tsx React surface (particle stage + minimal notices)
     PresenceEngine.ts             modes and smoothed signal for the body
     focus.ts, signal.ts, strings.ts
@@ -45,15 +60,70 @@ src/
     providers/rank.ts             deterministic candidate ranking
     providers/terrain.ts          terrain provider chain; relief-image fallback
     providers/glyphs.ts           clock, text, number, symbol (canvas)
+    sources/localAssets.ts        curated first-party assets (manifest, matching, trusted same-origin loader)
     sources/wikimedia.ts          Wikipedia lead images, Wikimedia Commons file search
     sources/openverse.ts          Openverse open-license image search
     sources/webSearch.ts          client side of the optional keyed route
     sources/terrain.ts            geocoding (Nominatim, Photon) + AWS Terrain Tiles
     transforms/crop.ts            crop, background trim, resize, normalizeImage (pure)
     transforms/raster.ts          browser decoding (createImageBitmap + canvas)
+    transforms/svg.ts             local SVG only: safety check, sizing, <img> → canvas, logo normalization
     transforms/heightfield.ts     terrarium decode, polygon mask, smoothing, normalization (pure)
   dev/debugPanel.ts               ?debug=1 diagnostics
 ```
+
+public/assets/brand/              curated brand files (place spirit-connect-logo.svg here)
+
+## Voice backends
+
+```text
+PresenceController
+  ├─ client: RealtimeClient | LiveClient   (VoiceClient: connect, disconnect, hints, busy)
+  ├─ runner: ToolExecutor (+ result timing) ── the only tool path, for both backends
+  ├─ engine: PresenceEngine ◄─ hints (fullDuplex for Live) ◄─ client
+  │                         ◄─ AssistantAudio ◄─ remote track ◄─ client
+  └─ visual: VisualActionController ◄─ VisualResolver
+```
+
+The controller creates one client for the active backend. Each adapter keeps its protocol, events and state to itself and reports back through callbacks (state, events, remote stream) that the controller maps onto the shared body. Callbacks from a client that has been switched away from are ignored. `setBackend()` disconnects the current client (Live closes gracefully in the background), detaches its audio, interrupts any speaking state, creates the other client and connects it with the same microphone stream if one is open. The engine, audio graph, visual controller and any visual on show stay as they are.
+
+The Realtime path is unchanged apart from moving the backend-agnostic tool code to `src/voice/tools/` and implementing `VoiceClient` (`backend`, `busy()`).
+
+### GPT-Live session
+
+```text
+browser                                     SCF server                          OpenAI
+RTCPeerConnection + mic track
+createDataChannel("oai-events")   (before the offer)
+createOffer → setLocalDescription → wait for ICE gathering (≤ 4 s; the offer is not trickled)
+POST /api/live/session { sdp } ───────────► origin check, OPENAI_API_KEY
+                                             POST /v1/live/sessions
+                                             { session, transport: { type: "webrtc", sdp } } ──►
+                                  ◄──────── { sdp, sessionId, model, ... } ◄── 201 { session.id, transport.sdp }
+setRemoteDescription(answer)
+data channel: session.started ─► connected (the client never sends session.start)
+```
+
+Session config ([`live/session.ts`](../src/live/session.ts)): `model` (`gpt-live-1`), the short voice `instructions`, `audio.output.voice` (no `audio.format`: WebRTC negotiates it), `delegation: { type: "responses", responses: { model: gpt-5.6-terra, instructions: backend prompt, tools: visualTools, tool_choice: "auto", parallel_tool_calls: false, reasoning? } }`, and `client.data_channel.allowed_client_events: ["response.item.create", "response.create", "session.close"]`, so the untrusted browser cannot change the session.
+
+| GPT-Live server event | Effect |
+| --- | --- |
+| `session.started` | connected; session id, model, voice |
+| `session.input_transcript.delta` | the user is talking (holds for 0.9 s); in-memory transcript |
+| `session.output_transcript.delta` | the assistant replied (closes the "reply expected" window); in-memory transcript |
+| `session.delegation.created` (`target: "responses"`) | a delegation is active: thinking when no assistant audio |
+| `response.event` › `response.created` | backend response id for that delegation |
+| `response.event` › `response.output_item.done` (`function_call`) | run the call (`call_id`, `name`, `arguments`) with the shared executor |
+| `response.event` › `response.completed` / `failed` / `incomplete` | settle: continue with `response.create`, or end the delegation; backend token usage |
+| `session.usage.updated` | cumulative voice seconds, context-window ratio |
+| `session.closed` | final usage and reason; unexpected closes reconnect, except `content` (final) |
+| `error`, acknowledgements | diagnostics |
+
+There are no Live events for speech start/stop, the end of a spoken response, or barge-in. The body's speaking state comes from the actual remote audio, as with Realtime.
+
+### Graceful close
+
+`disconnect()` sends `session.close` on the old data channel, detaches the peer from the body at once, and keeps it open until `session.closed` (final usage and reason) or 3 s pass, then closes it. The debug panel shows whether final usage was confirmed.
 
 ## Session lifecycle
 
@@ -90,9 +160,11 @@ Two VADs have separate jobs. **OpenAI's VAD controls conversational turns. SCF's
 | **Thinking** (interior turbulence, rotation, travelling fronts) | authoritative Realtime timing: from `speech_stopped` or `response.created` until assistant audio plays, while a tool runs, and between a tool-only response and its continuation. Bounded at 6 s if no response starts. |
 | **Speaking** (radial spectrum tufts, travelling accents, circulation) | the **actual remote assistant audio**: RMS amplitude plus 16 spectrum bands from the remote WebRTC track, fed to the existing `SpeechMotion` engine |
 
-Precedence in `PresenceEngine.sample()`: OpenAI says the user is speaking → listening (this is barge-in). Otherwise audible assistant audio → speaking. Otherwise local voice → listening. Otherwise a response is expected or a tool is running → thinking. Otherwise idle.
+Precedence in `PresenceEngine.sample()`: the backend says the user is speaking → listening (with Realtime this is barge-in; with GPT-Live only while the assistant is not audible, see below). Otherwise audible assistant audio → speaking. Otherwise local voice → listening. Otherwise a response is expected or a tool is running → thinking. Otherwise idle.
 
 While the assistant is audible, the local microphone is treated as echo. Barge-in is left to OpenAI's VAD, which is also what cancels the response.
+
+**GPT-Live (full duplex).** Its hints carry `fullDuplex: true` and are built from transcripts and delegations ([`live/state.ts`](../src/live/state.ts)): *user speaking* = an input transcript fragment in the last 0.9 s; *awaiting response* = an active delegation (bounded at 30 s without activity) or up to 2.5 s after the user stopped with no assistant reply yet; *tool active* as for Realtime. With `fullDuplex`, an audible assistant stays **speaking** while the user talks (backchannels are not a hard cancel). If the assistant's audio falls silent for 0.2 s while the user is still talking (the local microphone VAD, which is immediate; the lagging transcript hint is used only without microphone analysis), that is GPT-Live yielding: `interrupt()` runs, the cut is counted, and the body switches to **listening**. Backend work with no audible assistant is **thinking**.
 
 Without a live session (e.g. during reconnect), the engine falls back to the original transcript-free inference: a finished utterance starts a bounded "thinking".
 
@@ -103,6 +175,8 @@ Without a live session (e.g. during reconnect), the engine falls back to the ori
 - **Autoplay.** If an `AudioContext` cannot start without a gesture, the page waits for one tap before connecting, rather than letting the AI talk silently.
 
 ## Native function tools
+
+The tools are defined once ([`voice/tools/definitions.ts`](../src/voice/tools/definitions.ts)) and executed by one `ToolExecutor` for both backends. The Realtime flow:
 
 ```text
 Realtime model ── response.function_call_arguments.done {name, call_id, arguments}
@@ -126,6 +200,26 @@ conversation.item.create { type: "function_call_output", call_id, output: '{"ok"
 - **Concurrency.** An image or terrain forms while the model keeps talking. `morphSpeechBlend()` fades destructive speaking forces early in the morph, and a small audio-reactive shimmer stays, so portraits, clocks and text remain readable during speech.
 - **Failure** (invalid arguments, unknown tool, `image-not-found`, `image-unavailable`, `portrait-not-found`, `portrait-unavailable`, `region-not-found`, `terrain-unavailable`, superseded): the body stays or returns to the sphere, the model gets `{ ok: false, status }`, and it continues without the visual.
 - **Silence about tools.** The instructions tell the model the visual channel is auxiliary and not to be narrated. A response that already spoke gets no follow-up, so the model has no reason to comment on the tool result.
+
+The GPT-Live flow ([`live/delegation.ts`](../src/live/delegation.ts)):
+
+```text
+GPT-Live decides it needs help ── session.delegation.created { id, target: "responses" }
+      │  (GPT-Live keeps talking; the body thinks only if nothing is audible)
+      ▼
+Responses backend ── response.event › response.created { id }
+                  ── response.event › response.output_item.done { item: function_call { call_id, name, arguments } }
+      │  (an arguments-done event alone is not used; lifecycle snapshots have output: [])
+      ▼
+same ToolExecutor ── VisualAction → validate → VisualActionController → VisualResolver → body
+      ▼
+response.item.create { item: { type: "function_call_output", call_id, output } }   (one per call)
+      │
+      └─ when the backend response completed and every call has a result:
+         response.create   (the backend continues; GPT-Live speaks the outcome, e.g. the time)
+```
+
+Calls are deduplicated by `call_id`; a failed or incomplete response, or a closing session, is not continued; results that arrive after the session changed are dropped.
 
 ## Visual Resolver: open 2D and 2.5D visuals
 
@@ -158,10 +252,17 @@ type VisualTarget = Raster2DTarget | HeightFieldTarget | Future3DTargetPlacehold
 | `Raster2DTarget` `style: "portrait"` | people | luminance-weighted density, vignette, shallow luminance relief, photographic tones (unchanged) |
 | `Raster2DTarget` `style: "object"` | vehicles, products, objects, maps, reference images | density follows the colour distance from the image's own background (border median), plus some luminance and edges, so a dark car on a white floor becomes the car, not the floor |
 | `Raster2DTarget` `style: "glyph"` | clock, number, text, symbol | alpha-weighted crisp shapes, thin slab, even tones (unchanged) |
+| `Raster2DTarget` `style: "logo"` | curated brand marks (local assets) | alpha silhouette (transparent background ignored), even density with strong outline and colour-boundary edges, no vignette, thin slab, tones from the mark's own luminance range (even light for a one-colour mark) |
 | `HeightFieldTarget` | terrain, topography, relief, grayscale heightmaps | see below |
 | `Future3DTargetPlaceholder` | nothing yet | cannot be constructed (`reserved: never`); the sampler rejects it |
 
 Every sampler draws from a fixed-seed random sequence, so every adaptive-quality tier is a prefix of the same arrangement and shows the whole visual. The resolver samples each target once before handing it on, so an unusable target is rejected before it reaches the render loop.
+
+### Local curated assets (first)
+
+Before any image provider, `VisualResolver` asks the `local-assets` provider ([`sources/localAssets.ts`](../src/visual-resolver/sources/localAssets.ts)) whether the `show_image` query names a curated asset. Matching is deterministic: an exact normalized alias, or the brand name plus only logo words. A match is answered from the file under `public/assets/` or not at all: a missing, mistyped or unsafe file fails the action with `image-unavailable` and the trace records `local-assets: unavailable (…); no external fallback`. For first-party brand assets the wrong image is worse than none. Unmatched queries go to the providers below.
+
+Loading: the path must be a manifest entry under `/assets/` (no traversal, no other origin), fetched through the guarded `safeFetch` with an empty host allowlist (so only the page's own origin), `Content-Type: image/svg+xml`, ≤ 1 MB, UTF-8. The SVG text must be self-contained and script-free ([`transforms/svg.ts`](../src/visual-resolver/transforms/svg.ts)); it gets explicit pixel dimensions from its `viewBox` (400 px longest side, aspect preserved), is drawn through an `<img>` onto a transparent canvas, and is normalized for the `logo` style (transparency kept, a plain opaque background keyed out, margins trimmed). Trace: `provider local-assets · source /assets/brand/spirit-connect-logo.svg · target raster2d/logo`.
 
 ### Image providers and fallback
 
@@ -236,7 +337,7 @@ The visual space is open, but the implementation stays bounded.
 | Hosts (server route) | `api.search.brave.com` (search), `imgs.search.brave.com` (thumbnails): not an open proxy |
 | Protocol | HTTPS only, no ports, no userinfo, no redirects, `credentials: "omit"`, `no-referrer` (Nominatim gets the origin, per its usage policy) |
 | Sizes | image ≤ 6 MB, JSON ≤ 3 MB (Wikimedia ≤ 1 MB), elevation tile ≤ 1 MB, URL ≤ 2048 chars |
-| Formats | JPEG, PNG, WebP by `Content-Type` **and** magic bytes. SVG, GIF, HTML and scripts are refused. |
+| Formats | JPEG, PNG, WebP by `Content-Type` **and** magic bytes. SVG, GIF, HTML and scripts are refused. The one exception is SVG from curated same-origin `/assets/` paths, which must pass the SVG safety check and is rendered to pixels. |
 | Dimensions | decode ≤ 40 MP, raster target ≤ 300 px, height field ≤ 160 cells a side, ≤ 16 tiles |
 | Time | 8 s per request, 20 s per resolution (then `*-unavailable`); the voice never waits |
 | Input | queries ≤ 100 chars, regions ≤ 80: letters, digits and ordinary punctuation. No markup, control/bidi characters, URLs or schemes. Only ever sent as search text. |
@@ -269,7 +370,7 @@ Each needs one type in `visual-resolver/types.ts`, one sampler branch in `points
 
 ## Interruption / barge-in
 
-Turn detection is configured with `create_response: true, interrupt_response: true`. When the user starts talking over the assistant:
+**Realtime.** Turn detection is configured with `create_response: true, interrupt_response: true`. When the user starts talking over the assistant:
 
 1. OpenAI's VAD emits `input_audio_buffer.speech_started`, and the body switches to **listening** at once.
 2. The server cancels the response and cuts unplayed audio (WebRTC: `output_audio_buffer.cleared`, then `response.done` with `status: "cancelled"`, `reason: "turn_detected"`).
@@ -278,10 +379,13 @@ Turn detection is configured with `create_response: true, interrupt_response: tr
 
 The client sends no cancel events itself. With WebRTC, the server's own interruption handling is authoritative and it truncates the conversation correctly.
 
+**GPT-Live.** GPT-Live listens while it speaks and decides itself whether to yield (its prompt says: stop speaking when the user interrupts). SCF sends nothing and forces no Realtime-style turn-taking: user speech during audible assistant audio keeps the body speaking; the assistant's audio stopping under the user's voice is the interruption the body reacts to (see [Presence state mapping](#presence-state-mapping)). Backend work continues through an interruption, as the GPT-Live docs describe.
+
 ## Connection, reconnection and errors
 
 - **Single session.** Every (re)connect bumps a generation counter and tears down the previous peer and data channel. Late callbacks from an old generation are ignored. `connect()` while connecting or connected does nothing. React StrictMode's double mount is covered by `PresenceController.stop()`.
 - **Unexpected loss** (data channel closed, peer `failed`, peer `disconnected` for more than 4 s, 20 s connect timeout): tear down, clear the remote stream, reset the tool loop, clear stale speaking/thinking, then retry after 1 s, 3 s and 8 s. After that the state is `error` with a **Try again** notice.
+- **GPT-Live** uses the same bounded reconnect. An unexpected `session.closed` (`expired`, `connection_lost`, `remote_hangup`) reconnects; `content` (a safety close) is final.
 - **Permanent errors** are not retried: `not-configured`, `invalid-api-key`, `forbidden-origin`, `rate-limited`, `upstream-rejected`, and non-401 4xx responses from the SDP exchange.
 - **Microphone denied or unavailable, WebGPU unavailable, device lost, image/portrait/terrain not found or unavailable, remote audio blocked:** each shows a one-line notice or degrades quietly. None of them stops the rest of the page.
 
@@ -293,6 +397,12 @@ The client sends no cancel events itself. With WebRTC, the server's own interrup
 2. Builds the GA session: `type: "realtime"`, model, instructions, `output_modalities: ["audio"]`, `audio.input` (near-field noise reduction, turn detection, optional transcription), `audio.output.voice`, tools, `tool_choice: "auto"`.
 3. Posts to `https://api.openai.com/v1/realtime/client_secrets` with `expires_after: { anchor: "created_at", seconds: 60 }` and an `OpenAI-Safety-Identifier` header (a salted hash of the installation id).
 4. Returns `{ value, expiresAt, model, voice }`, with `Cache-Control: no-store`.
+
+`POST /api/live/session` ([route](../src/app/api/live/session/route.ts), [logic](../src/server/liveSession.ts)):
+
+1. The same key, origin and body checks (the body is `{ sdp, installationId }`, ≤ 64 KB, and `sdp` must look like an SDP offer).
+2. Builds the Live session config (above) and posts `{ session, transport: { type: "webrtc", sdp } }` to `https://api.openai.com/v1/live/sessions` with the `OpenAI-Safety-Identifier` header.
+3. Returns `{ sdp, sessionId, model, backendModel, voice }` from the `201` response, with `Cache-Control: no-store`. Errors map to the same codes as the token route.
 
 The server does not proxy audio, store anything, run STT/TTS/LLM, or execute tools.
 

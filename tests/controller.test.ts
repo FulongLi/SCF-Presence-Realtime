@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { PresenceController } from "../src/presence/controller";
+import type { LiveEnvironment } from "../src/live/client";
 import type { RealtimeEnvironment } from "../src/realtime/client";
 
 // The controller's browser-facing pieces (getUserMedia, AudioContext) are exercised by the smoke test;
@@ -13,15 +14,23 @@ const environment: RealtimeEnvironment = {
   setTimer: () => 0,
   clearTimer: () => {},
 };
+const live: LiveEnvironment = {
+  createPeer: () => { throw new Error("not used"); },
+  createSession: () => new Promise(() => {}),
+  now: () => 0,
+  setTimer: () => 0,
+  clearTimer: () => {},
+};
+const environments = { realtime: environment, live };
 
 test("construction is side-effect free and exposes a stable server snapshot", () => {
-  const controller = new PresenceController(environment);
+  const controller = new PresenceController(environments);
   assert.deepEqual(controller.getServerSnapshot(), { mic: "checking", connection: "disconnected", error: null, needsGesture: false, playback: "idle" });
   assert.equal(controller.getSnapshot(), controller.getSnapshot(), "snapshots are referentially stable between updates");
 });
 
-test("the body is wired to the session: engine reads Realtime hints and the visual controller", () => {
-  const controller = new PresenceController(environment);
+test("the body is wired to the session: engine reads the voice backend's hints and the visual controller", () => {
+  const controller = new PresenceController(environments);
   const signal = controller.engine.sample(1 / 60, 1);
   assert.equal(signal.mode, "idle");
   assert.deepEqual(controller.client.hints(1), { live: false, userSpeaking: false, awaitingResponse: false, toolActive: false });
@@ -29,7 +38,7 @@ test("the body is wired to the session: engine reads Realtime hints and the visu
 });
 
 test("stop() leaves no session behind and notifies subscribers once per change", () => {
-  const controller = new PresenceController(environment);
+  const controller = new PresenceController(environments);
   let notified = 0;
   const unsubscribe = controller.subscribe(() => notified++);
   controller.stop();

@@ -19,6 +19,9 @@ export interface ToolExecution {
   ms: number;
 }
 
+/** Anything that executes a visual tool call: the ToolExecutor, or a wrapper around it. */
+export interface ToolRunner { execute(name: string, rawArguments: string): Promise<ToolExecution> }
+
 const record = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 const onlyKeys = (value: Record<string, unknown>, allowed: string[]) => Object.keys(value).every(key => allowed.includes(key));

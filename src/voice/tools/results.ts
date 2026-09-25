@@ -1,5 +1,5 @@
 /**
- * Concise function results returned to the Realtime model. They describe what the body did in a few
+ * Concise function results returned to the model (the Realtime model, or GPT-Live's Responses backend). They describe what the body did in a few
  * fields so the model can continue naturally; they never contain internal protocol details.
  */
 export type ToolStatus =

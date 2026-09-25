@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { VISUAL_TOOL_NAMES, visualTools } from "../src/realtime/tools/definitions";
-import { normalizeClockTime, parseToolArguments, toolCallToVisualAction, ToolExecutor, type VisualBody } from "../src/realtime/tools/executor";
-import { failureStatus, serializeResult } from "../src/realtime/tools/results";
+import { VISUAL_TOOL_NAMES, visualTools } from "../src/voice/tools/definitions";
+import { normalizeClockTime, parseToolArguments, toolCallToVisualAction, ToolExecutor, type VisualBody } from "../src/voice/tools/executor";
+import { failureStatus, serializeResult } from "../src/voice/tools/results";
 import { VisualActionController, type SubmitOutcome } from "../src/visual-actions/controller";
 import { IMAGE_INTENTS, SYMBOL_NAMES, TERRAIN_STYLES, type MorphTarget, type VisualAction } from "../src/visual-actions/types";
 import { PRESENCE_INSTRUCTIONS } from "../src/realtime/instructions";

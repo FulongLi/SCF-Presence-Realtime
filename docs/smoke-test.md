@@ -1,7 +1,8 @@
 # Manual smoke test (needs a real OpenAI API key)
 
-Unit tests mock every Realtime and WebRTC surface. This checklist is the one end-to-end test that talks
-to OpenAI. It uses your API key and is billed to your account.
+Unit tests mock every Realtime, GPT-Live and WebRTC surface. This checklist is the one end-to-end test that
+talks to OpenAI. It uses your API key and is billed to your account. Run sections 1–5 with the Realtime
+backend (the default, or `/?voice=realtime&debug=1`), then section 6 with GPT-Live.
 
 ## Setup
 
@@ -82,11 +83,36 @@ Expected:
 | Block the microphone in site settings and reload | A one-line notice explains how to allow it. |
 | Debug → **disconnect** | The body goes idle, and only one session is ever created (check the Network tab for `/v1/realtime/calls`). |
 
-## Isolating body problems from Realtime problems
+## 6. GPT-Live (`/?voice=live&debug=1`, or `SCF_VOICE_BACKEND=live`)
+
+Same key, no other setup. Debug → **voice backend** should show `backend live`, `live model gpt-live-1 · backend model gpt-5.6-terra`, a `live_…` session id after `session.started`, and the connect time.
+
+| Say / do | Expected |
+| --- | --- |
+| *"Hello."* | A natural GPT-Live voice. Listening while you speak, speaking while it answers (from the real audio). `voice duration` grows. |
+| *"What time is it?"* | `delegations 1`, `function calls 1` (`show_clock`), `continuations 1`; the particle clock forms and the voice says the time. Timings show `delegation → call` and `tool result → audio`. |
+| *"Show me Tesla Model Y."* | The backend selects `show_image`; the resolver trace is the same as with Realtime; a particle car forms. |
+| *"Show me the terrain of Wales."* | `show_terrain`, the same height-field path. |
+| Talk over a long answer | GPT-Live yields naturally. A short "mm-hmm" should not flip the body out of speaking; when the voice actually stops under you, the body switches to listening and `full-duplex cuts` increases. |
+| Debug → switch **Realtime** ↔ **GPT-Live** mid-session | The old session closes (`last close close_requested` with confirmed usage for Live), the other backend connects on the same microphone without a new permission prompt, the body stays alive, and `?voice=` in the URL follows the choice. |
+| Chinese / English | Speak Chinese, then English: the voice follows your language. |
+
+## 7. Local brand asset: Spirit Connect logo
+
+Put the real logo at `public/assets/brand/spirit-connect-logo.svg` first.
+
+| Say / do | Expected |
+| --- | --- |
+| Debug → tools → **local asset: Spirit Connect logo** | Without OpenAI. Resolver trace: `1. local-assets: selected (alias match: spirit-connect-logo)`, `provider local-assets`, `source /assets/brand/spirit-connect-logo.svg`, `target raster2d/logo`. A crisp particle logo with no background rectangle, then back to the sphere. |
+| *"Show me the Spirit Connect logo."* (both backends) | `show_image` with a Spirit Connect query → the same trace; no Wikipedia/Openverse/web step appears. |
+| *"Show our company logo."* | The same local logo. |
+| Temporarily rename the file, then ask again | `image-unavailable`, trace `local-assets: unavailable (http-404); no external fallback`; no other logo is shown. |
+
+## Isolating body problems from model problems
 
 The debug panel can drive the body without OpenAI:
 
-- **tools**: runs the same `ToolExecutor` the Realtime function calls use (the manual acceptance set, plus free-form `show_image`/`show_terrain`).
+- **tools**: runs the same `ToolExecutor` the Realtime and GPT-Live function calls use (the manual acceptance set including the local Spirit Connect logo, plus free-form `show_image`/`show_terrain`).
 - **visual resolver**: the provider fallback chain, sources, target sizes, height ranges and latencies of the last visual.
 - **visual actions (direct)**: submits Visual Actions straight to the controller (clock, 15:42, 42%, Hello, a symbol, a portrait or a local photo).
 - **presence**: forces idle, listening, thinking or speaking, sends a focus impulse, or plays synthetic speech through the real speaking pipeline.

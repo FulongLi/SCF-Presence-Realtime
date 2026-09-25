@@ -71,6 +71,18 @@ export async function boundedBytes(response: Response, limit: number): Promise<U
   return bytes;
 }
 
+/**
+ * A timeout signal backed by an ordinary (ref'd) timer that the caller clears when done.
+ * `AbortSignal.timeout()` uses an unref'd timer in Node: when a hung request is the only pending work,
+ * the event loop can drain before it fires, so the timeout never happens (and Node's test runner
+ * cancels the test). This keeps the behaviour deterministic in every runtime.
+ */
+export function timeoutSignal(ms: number): { signal: AbortSignal; clear(): void } {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new DOMException("The operation timed out.", "TimeoutError")), ms);
+  return { signal: controller.signal, clear: () => clearTimeout(timer) };
+}
+
 export interface FetchOptions {
   hosts: readonly HostRule[];
   mimes: readonly string[];
@@ -90,29 +102,31 @@ export interface Fetched { bytes: Uint8Array; mime: string; url: string; ms: num
 export async function safeFetch(value: string | URL, options: FetchOptions): Promise<Fetched> {
   const started = Date.now();
   const url = checkedURL(value, options.hosts, options.base);
-  const timeout = AbortSignal.timeout(options.timeoutMs ?? limits.requestMs);
-  const signal = AbortSignal.any([options.signal, timeout]);
-  let response: Response;
+  const timeout = timeoutSignal(options.timeoutMs ?? limits.requestMs);
+  const signal = AbortSignal.any([options.signal, timeout.signal]);
   try {
-    response = await (options.request ?? fetch)(url, {
-      ...options.init, signal, redirect: "error", credentials: "omit",
-      referrerPolicy: options.referrer ?? "no-referrer",
-    });
-  } catch (error) {
-    options.signal.throwIfAborted();
-    if (timeout.aborted) throw new ResolveError("timeout");
-    throw error instanceof ResolveError ? error : new ResolveError("network");
-  }
-  if (!response.ok) { await response.body?.cancel().catch(() => {}); throw new ResolveError(`http-${response.status}`); }
-  const mime = response.headers.get("content-type")?.split(";")[0].trim().toLowerCase() ?? "";
-  if (!options.mimes.includes(mime)) { await response.body?.cancel().catch(() => {}); throw new ResolveError("type"); }
-  let bytes: Uint8Array;
-  try { bytes = await boundedBytes(response, options.maxBytes); } catch (error) {
-    options.signal.throwIfAborted();
-    if (timeout.aborted) throw new ResolveError("timeout");
-    throw error;
-  }
-  return { bytes, mime, url: url.href, ms: Date.now() - started };
+    let response: Response;
+    try {
+      response = await (options.request ?? fetch)(url, {
+        ...options.init, signal, redirect: "error", credentials: "omit",
+        referrerPolicy: options.referrer ?? "no-referrer",
+      });
+    } catch (error) {
+      options.signal.throwIfAborted();
+      if (timeout.signal.aborted) throw new ResolveError("timeout");
+      throw error instanceof ResolveError ? error : new ResolveError("network");
+    }
+    if (!response.ok) { await response.body?.cancel().catch(() => {}); throw new ResolveError(`http-${response.status}`); }
+    const mime = response.headers.get("content-type")?.split(";")[0].trim().toLowerCase() ?? "";
+    if (!options.mimes.includes(mime)) { await response.body?.cancel().catch(() => {}); throw new ResolveError("type"); }
+    let bytes: Uint8Array;
+    try { bytes = await boundedBytes(response, options.maxBytes); } catch (error) {
+      options.signal.throwIfAborted();
+      if (timeout.signal.aborted) throw new ResolveError("timeout");
+      throw error;
+    }
+    return { bytes, mime, url: url.href, ms: Date.now() - started };
+  } finally { timeout.clear(); }
 }
 
 /** A guarded JSON request; also returns how long it took. */
