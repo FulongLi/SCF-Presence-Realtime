@@ -1,6 +1,6 @@
 import type { ClientEvent, FunctionCallItem, RealtimeEvent, ResponseStatus } from "./events";
-import type { ToolExecution } from "./tools/executor";
-import { serializeResult, type ToolResult } from "./tools/results";
+import type { ToolRunner } from "../voice/tools/executor";
+import { serializeResult, type ToolResult } from "../voice/tools/results";
 
 export interface ToolCallRecord {
   callId: string;
@@ -12,7 +12,7 @@ export interface ToolCallRecord {
   ms?: number;
 }
 
-export interface ToolRunner { execute(name: string, rawArguments: string): Promise<ToolExecution> }
+export type { ToolRunner };
 
 export interface ToolLoopHost {
   /** Sends a client event over the data channel; false when the channel is not open. */

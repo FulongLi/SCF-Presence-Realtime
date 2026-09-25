@@ -2,7 +2,8 @@ import type { ImageIntent, TerrainStyle } from "../visual-actions/types";
 
 /**
  * The Visual Resolver's vocabulary. The particle body only ever sees a VisualTarget; where it came
- * from (Wikimedia, Openverse, a web search, elevation tiles, a canvas glyph) stays in the resolver.
+ * from (a curated local asset, Wikimedia, Openverse, a web search, elevation tiles, a canvas glyph)
+ * stays in the resolver.
  */
 
 /** An RGBA image, row-major, 4 bytes per pixel. */
@@ -13,11 +14,13 @@ export interface Raster { width: number; height: number; data: Uint8ClampedArray
  * - portrait: luminance-weighted density with a vignette and shallow relief (faces, people).
  * - object: density follows what differs from the image's background (vehicles, products, maps).
  * - glyph: alpha-weighted crisp shapes with even light (text, numbers, clocks, symbols).
+ * - logo: a brand mark on transparency: alpha-shaped silhouette, strong edges (including colour
+ *   boundaries inside the mark), even density and no photographic vignette.
  */
 export interface Raster2DTarget {
   kind: "raster2d";
   raster: Raster;
-  style: "portrait" | "object" | "glyph";
+  style: "portrait" | "object" | "glyph" | "logo";
 }
 
 /** A grid of normalized heights (0 = lowest shown, 1 = highest), row 0 is the far (north) edge. */
@@ -105,6 +108,8 @@ export interface ResolveTrace {
   source?: string;
   sourceType?: string;
   targetType?: VisualTarget["kind"];
+  /** The raster sampling style (portrait, object, glyph, logo). */
+  targetStyle?: Raster2DTarget["style"];
   raster?: { width: number; height: number };
   field?: { width: number; height: number; min: number; max: number; elevation?: { min: number; max: number } };
   fetchMs: number;

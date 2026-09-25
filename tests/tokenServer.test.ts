@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildSessionConfig, REALTIME_DEFAULTS, sessionOptionsFromEnv } from "../src/realtime/session";
 import { CLIENT_SECRETS_URL, createRealtimeToken, originAllowed, safetyIdentifier } from "../src/server/realtimeToken";
-import { VISUAL_TOOL_NAMES } from "../src/realtime/tools/definitions";
+import { VISUAL_TOOL_NAMES } from "../src/voice/tools/definitions";
 
 const KEY = "sk-test-permanent-key-never-in-browser";
 const INSTALL = "3f1c2a9e-8b7d-4c6e-9a1b-2d3e4f5a6b7c";

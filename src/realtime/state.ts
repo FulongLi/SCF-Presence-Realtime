@@ -1,7 +1,8 @@
 import type { ConversationHints } from "../presence/PresenceEngine";
+import type { ConnectionState } from "../voice/client";
 import type { RealtimeEvent, ResponseUsage } from "./events";
 
-export type ConnectionState = "disconnected" | "connecting" | "connected" | "reconnecting" | "error" | "ended";
+export type { ConnectionState };
 /** The session lifecycle as one label: connection states, and while connected, the turn phase. */
 export type SessionPhase = ConnectionState | "listening" | "thinking" | "speaking";
 

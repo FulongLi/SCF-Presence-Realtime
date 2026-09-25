@@ -1,7 +1,11 @@
-import type { ConversationHints, ConversationSource } from "../presence/PresenceEngine";
+import type { ConversationHints } from "../presence/PresenceEngine";
+import type { ConnectionState, Transcript, VoiceClient } from "../voice/client";
+import { EVENTS_CHANNEL, type ChannelLike, type PeerLike } from "../voice/webrtc";
 import { ToolCallLoop, type ToolRunner } from "./conversation";
 import { parseServerEvent, type ClientEvent, type RealtimeEvent } from "./events";
-import { initialState, presenceHints, reduce, type ConnectionState, type RealtimePresenceState, type StateEvent } from "./state";
+import { initialState, presenceHints, reduce, type RealtimePresenceState, type StateEvent } from "./state";
+
+export type { ChannelLike, PeerLike, Transcript };
 
 /** What the SCF server returns from POST /api/realtime/token. Never contains the standard API key. */
 export interface RealtimeToken { value: string; expiresAt?: number; model: string; voice: string }
@@ -9,28 +13,6 @@ export interface RealtimeToken { value: string; expiresAt?: number; model: strin
 /** A connection failure. `retryable` separates transient network trouble from configuration errors. */
 export class RealtimeConnectError extends Error {
   constructor(readonly code: string, readonly retryable: boolean) { super(code); this.name = "RealtimeConnectError"; }
-}
-
-/** The subset of RTCDataChannel the client uses (mockable in tests). */
-export interface ChannelLike {
-  readonly readyState: string;
-  send(data: string): void;
-  close(): void;
-  onopen: ((event: Event) => void) | null;
-  onclose: ((event: Event) => void) | null;
-  onmessage: ((event: MessageEvent) => void) | null;
-}
-/** The subset of RTCPeerConnection the client uses (mockable in tests). */
-export interface PeerLike {
-  readonly connectionState: string;
-  addTrack(track: MediaStreamTrack, stream: MediaStream): unknown;
-  createDataChannel(label: string): ChannelLike;
-  createOffer(): Promise<{ sdp?: string; type: string }>;
-  setLocalDescription(description: { sdp?: string; type: string }): Promise<void>;
-  setRemoteDescription(description: { sdp: string; type: "answer" }): Promise<void>;
-  close(): void;
-  ontrack: ((event: { track: MediaStreamTrack; streams: readonly MediaStream[] }) => void) | null;
-  onconnectionstatechange: ((event: Event) => void) | null;
 }
 
 export interface RealtimeEnvironment {
@@ -60,8 +42,6 @@ export const reconnectDefaults = {
   connectTimeoutMs: 20000,
 };
 
-export interface Transcript { role: "user" | "assistant"; text: string; at: number }
-
 /**
  * One browser Realtime session over WebRTC.
  *
@@ -71,7 +51,8 @@ export interface Transcript { role: "user" | "assistant"; text: string; at: numb
  * At most one peer connection exists at a time: every (re)connect bumps a generation counter and
  * tears down the previous peer, and late callbacks from an old generation are ignored.
  */
-export class RealtimeClient implements ConversationSource {
+export class RealtimeClient implements VoiceClient {
+  readonly backend = "realtime" as const;
   state: RealtimePresenceState = initialState();
   token: Pick<RealtimeToken, "model" | "voice"> | null = null;
   readonly transport = { peer: "new", channel: "closed" };
@@ -105,6 +86,12 @@ export class RealtimeClient implements ConversationSource {
 
   /** ConversationSource for the PresenceEngine; `now` is in seconds like the engine clock. */
   hints(now: number): ConversationHints { return presenceHints(this.state, now * 1000); }
+
+  /** A response, assistant audio or user speech is in progress. */
+  busy(): boolean {
+    const s = this.state;
+    return s.responseActive || s.audioActive || s.userSpeaking || s.toolsActive > 0;
+  }
 
   /** Starts a session with the page's microphone stream. A second call while active is a no-op. */
   connect(microphone: MediaStream) {
@@ -150,7 +137,7 @@ export class RealtimeClient implements ConversationSource {
       };
       peer.onconnectionstatechange = () => this.peerState(generation, peer);
       for (const track of microphone.getAudioTracks()) peer.addTrack(track, microphone);
-      const channel = peer.createDataChannel("oai-events");
+      const channel = peer.createDataChannel(EVENTS_CHANNEL);
       this.channel = channel;
       this.transport.channel = "connecting";
       channel.onopen = () => {

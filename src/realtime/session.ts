@@ -1,5 +1,5 @@
 import { PRESENCE_INSTRUCTIONS } from "./instructions";
-import { visualTools } from "./tools/definitions";
+import { visualTools } from "../voice/tools/definitions";
 
 /**
  * GA Realtime session configuration (the `session` object of POST /v1/realtime/client_secrets).

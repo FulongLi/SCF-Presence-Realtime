@@ -3,18 +3,22 @@ import type { RuntimeHandle } from "@/particle/ParticleRuntime";
 import { qualityTiers } from "@/particle/quality";
 import type { PresenceController } from "@/presence/controller";
 import { PRESENCE_MODES, type PresenceMode } from "@/presence/signal";
+import { livePhase } from "@/live/state";
 import { sessionPhase } from "@/realtime/state";
+import { VOICE_BACKEND_LABELS, VOICE_BACKENDS, type VoiceBackend } from "@/voice/backend";
+import { LOCAL_ASSETS } from "@/visual-resolver";
 import { IMAGE_INTENTS, SYMBOL_NAMES, TERRAIN_STYLES } from "@/visual-actions/types";
 import { validateVisualAction } from "@/visual-actions/validate";
 
 /**
  * Development diagnostics, loaded only for `?debug=1` in development builds (or with
  * NEXT_PUBLIC_SCF_DEBUG=1). It never sees the standard API key or the ephemeral secret.
+ * Both voice backends are shown side by side in the same terms, for manual A/B comparison.
  */
 export function attachDebugPanel(container: HTMLElement, { controller, runtime }: {
   controller: PresenceController; runtime: () => RuntimeHandle | null;
 }) {
-  const { engine, visual, client, executor, assistant, resolver } = controller;
+  const { engine, visual, executor, assistant, resolver } = controller;
   const panel = document.createElement("aside");
   panel.className = "debug-panel";
   // Clicks inside the panel are not conversation gestures and must not move particles.
@@ -32,17 +36,28 @@ export function attachDebugPanel(container: HTMLElement, { controller, runtime }
     const group = el("details"); group.open = open; el("summary", title, group);
     return group;
   };
-  el("strong", "SCF Presence Realtime · development");
+  el("strong", "SCF Presence · development");
   const now = () => performance.now() / 1000;
   const fixed = (value: number, digits = 2) => value.toFixed(digits);
   const age = (at: number | null | undefined) => at ? `${Math.round((performance.now() - at) / 1000)} s ago` : "—";
 
-  const realtime = section("realtime", true);
-  const realtimeOut = el("output", "", realtime);
-  const connection = el("div", "", realtime);
-  button("disconnect", connection, () => client.disconnect());
-  button("reconnect", connection, () => { client.disconnect(); controller.retry(); });
-  button("end (idle)", connection, () => client.disconnect("ended"));
+  const voice = section("voice backend", true);
+  // A/B: switch the backend on the same microphone; the choice is kept in the URL (?voice=) for reloads.
+  const selector = el("div", "", voice);
+  const backendButtons = VOICE_BACKENDS.map(name => {
+    const node = button(VOICE_BACKEND_LABELS[name], selector, () => {
+      controller.setBackend(name as VoiceBackend);
+      const url = new URL(location.href);
+      url.searchParams.set("voice", name);
+      history.replaceState(history.state, "", url);
+    });
+    return [name, node] as const;
+  });
+  const voiceOut = el("output", "", voice);
+  const connection = el("div", "", voice);
+  button("disconnect", connection, () => controller.client.disconnect());
+  button("reconnect", connection, () => { controller.client.disconnect(); controller.retry(); });
+  button("end (idle)", connection, () => controller.client.disconnect("ended"));
 
   const conversation = section("conversation", true);
   const conversationOut = el("output", "", conversation);
@@ -63,6 +78,8 @@ export function attachDebugPanel(container: HTMLElement, { controller, runtime }
     ["image: Tesla Model Y", "show_image", { query: "Tesla Model Y", intent: "vehicle" }],
     ["image: Taylor Swift", "show_image", { query: "Taylor Swift", intent: "celebrity" }],
     ["image: concept car", "show_image", { query: "futuristic concept car", intent: "reference" }],
+    // Curated first-party asset: exercises the local-asset resolver (no OpenAI, no web search).
+    ...LOCAL_ASSETS.map(asset => [`local asset: ${asset.brand} ${asset.type}`, "show_image", { query: `${asset.brand} ${asset.type}` }] as [string, string, Record<string, unknown>]),
     ["terrain: Wales", "show_terrain", { region: "Wales", style: "terrain" }],
     ["terrain: United Kingdom", "show_terrain", { region: "United Kingdom", style: "topography" }],
     ["clock", "show_clock", {}],
@@ -173,30 +190,58 @@ export function attachDebugPanel(container: HTMLElement, { controller, runtime }
   };
 
   container.append(panel);
+  const ms = (value: number | null) => value === null ? "—" : `${value} ms`;
+  const session = (id: string | null, connectedAt: number | null, now: number) =>
+    `session ${id ? `${id.slice(0, 14)}…` : "—"} · ${connectedAt ? `${Math.round((now - connectedAt) / 1000)} s` : "—"}`;
+
   const timer = setInterval(() => {
-    const s = client.state, ms = performance.now();
+    const client = controller.client, now = performance.now();
     const handle = runtime();
     if (handle && !tuningBuilt) buildTuning(handle);
-    const u = s.usage;
-    realtimeOut.textContent = [
-      `phase ${sessionPhase(s, ms)}${s.error ? ` · error ${s.error}` : ""}`,
-      `webrtc ${client.transport.peer} · data channel ${client.transport.channel}`,
-      `model ${s.model ?? client.token?.model ?? "—"} · voice ${client.token?.voice ?? "—"}`,
-      `session ${s.sessionId ? `${s.sessionId.slice(0, 12)}…` : "—"} · ${s.connectedAt ? `${Math.round((ms - s.connectedAt) / 1000)} s` : "—"}`,
-      `responses ${s.responses} · tokens ${u.totalTokens} (in ${u.inputTokens} = audio ${u.inputAudioTokens} + text ${u.inputTextTokens}, cached ${u.cachedTokens}; out ${u.outputTokens} = audio ${u.outputAudioTokens} + text ${u.outputTextTokens})`,
-    ].join("\n");
-    conversationOut.textContent = [
-      `user speaking (OpenAI VAD) ${s.userSpeaking}`,
-      `response active ${s.responseActive} · audio buffer ${s.audioActive ? "playing" : "idle"}`,
-      `interruptions ${s.interruptions}`,
-    ].join("\n");
+    for (const [name, node] of backendButtons) node.disabled = name === controller.backend;
+    const t = controller.timings;
+    const timings = `timing: connect ${ms(t.connectMs)} · speech end → audio ${ms(t.replyMs)} · tool result → audio ${ms(t.resultToAudioMs)}`;
+    if (client.backend === "realtime") {
+      const s = client.state, u = s.usage;
+      voiceOut.textContent = [
+        `backend realtime · phase ${sessionPhase(s, now)}${s.error ? ` · error ${s.error}` : ""}`,
+        `webrtc ${client.transport.peer} · data channel ${client.transport.channel}`,
+        `model ${s.model ?? client.token?.model ?? "—"} · voice ${client.token?.voice ?? "—"}`,
+        session(s.sessionId, s.connectedAt, now),
+        `responses ${s.responses} · tokens ${u.totalTokens} (in ${u.inputTokens} = audio ${u.inputAudioTokens} + text ${u.inputTextTokens}, cached ${u.cachedTokens}; out ${u.outputTokens} = audio ${u.outputAudioTokens} + text ${u.outputTextTokens})`,
+        timings,
+      ].join("\n");
+      conversationOut.textContent = [
+        `user speaking (OpenAI VAD) ${s.userSpeaking}`,
+        `response active ${s.responseActive} · audio buffer ${s.audioActive ? "playing" : "idle"}`,
+        `interruptions ${s.interruptions}`,
+      ].join("\n");
+    } else {
+      const s = client.state, u = s.backendUsage, d = client.delegation.stats, close = client.lastClose;
+      voiceOut.textContent = [
+        `backend live · phase ${livePhase(s, now)}${s.error ? ` · error ${s.error}` : ""}`,
+        `webrtc ${client.transport.peer} · ice ${client.transport.ice} · data channel ${client.transport.channel}`,
+        `live model ${s.model ?? "—"} · backend model ${s.backendModel ?? "—"} · voice ${s.voice ?? "—"}`,
+        session(s.sessionId, s.connectedAt, now),
+        `voice duration ${s.usageSeconds.toFixed(1)} s${s.contextRatio !== null ? ` · context ${(s.contextRatio * 100).toFixed(0)}%` : ""}`
+          + ` · backend tokens ${u.totalTokens} (in ${u.inputTokens}, cached ${u.cachedTokens}; out ${u.outputTokens})`,
+        `delegations ${d.delegations} · active ${client.delegation.active} · backend responses ${d.backendResponses} · function calls ${d.functionCalls} · continuations ${d.continuations}`,
+        `${timings} · delegation → call ${ms(d.delegationToCallMs)}`,
+        close ? `last close ${close.reason}${close.confirmed ? "" : " (final usage unconfirmed)"} · ${close.seconds.toFixed(1)} s` : "",
+      ].filter(Boolean).join("\n");
+      conversationOut.textContent = [
+        `user heard (input transcript) ${s.userHeardAt !== null && now - s.userHeardAt < 900} · assistant transcript ${s.assistantHeardAt !== null && now - s.assistantHeardAt < 900}`,
+        `delegating ${s.delegationsActive > 0} · tools active ${s.toolsActive}`,
+        `full-duplex cuts (assistant audio stopped under the user) ${engine.cuts}`,
+      ].join("\n");
+    }
     const signal = engine.signal;
     audioOut.textContent = [
       `user amplitude ${fixed(signal.userAmplitude)} · VAD ${controller.listener.vad.voiced ? "voiced" : "quiet"}`,
       `assistant amplitude ${fixed(signal.assistantAmplitude)} · playback ${assistant.playback}`,
       `bands ${Array.from(signal.assistantBands, value => Math.round(value * 9)).join("")}`,
     ].join("\n");
-    const last = client.tools.last;
+    const last = client.backend === "realtime" ? client.tools.last : client.delegation.last;
     toolsOut.textContent = [
       last ? `last call ${last.name} ${age(last.at)}` : "last call —",
       last ? `arguments ${last.arguments || "{}"}` : "",
@@ -209,7 +254,7 @@ export function attachDebugPanel(container: HTMLElement, { controller, runtime }
       ...trace.chain.map((step, index) => `  ${index + 1}. ${step.provider}: ${step.outcome} · ${step.ms} ms`),
       trace.provider ? `provider ${trace.provider}${trace.sourceType ? ` · ${trace.sourceType}` : ""}` : "",
       trace.source ? `source ${trace.source.slice(0, 140)}` : "",
-      trace.targetType ? `target ${trace.targetType}${trace.raster ? ` · raster ${trace.raster.width}×${trace.raster.height}` : ""}` : "",
+      trace.targetType ? `target ${trace.targetType}${trace.targetStyle ? `/${trace.targetStyle}` : ""}${trace.raster ? ` · raster ${trace.raster.width}×${trace.raster.height}` : ""}` : "",
       trace.field ? `height field ${trace.field.width}×${trace.field.height} · normalized ${fixed(trace.field.min)}–${fixed(trace.field.max)}`
         + (trace.field.elevation ? ` · ${trace.field.elevation.min}–${trace.field.elevation.max} m` : "") : "",
       `fetch ${trace.fetchMs} ms · resolve ${trace.resolveMs ?? "…"} ms`,

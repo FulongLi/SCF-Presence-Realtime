@@ -1,11 +1,12 @@
 import type { InformationAction } from "../visual-actions/controller";
 import { HOLD_SECONDS, type ImageIntent, type MorphTarget, type SymbolName } from "../visual-actions/types";
 import { allowedImageURL } from "../visual-actions/validate";
-import { fetchImage, HOSTS, type Fetcher } from "./net";
+import { fetchImage, HOSTS, timeoutSignal, type Fetcher } from "./net";
 import { createTargetPoints } from "./points";
 import { resolveImage, type ImagePipeline } from "./providers/images";
 import { clockText } from "./providers/glyphs";
 import { resolveTerrain } from "./providers/terrain";
+import type { LocalAssetMatch, LocalAssetProvider } from "./sources/localAssets";
 import { normalizeImage } from "./transforms/crop";
 import { brightnessSource, buildHeightField, downsampleGrid, heightFieldLimits, heightRange } from "./transforms/heightfield";
 import {
@@ -13,6 +14,8 @@ import {
 } from "./types";
 
 export interface ResolverDeps {
+  /** Curated first-party assets, consulted before any image provider. */
+  localAssets?: LocalAssetProvider;
   imageProviders: readonly ImageProvider[];
   terrainProviders: readonly TerrainProvider[];
   /** Decodes a downloaded or local image into a raster (browser: canvas). */
@@ -35,8 +38,9 @@ const family = (action: InformationAction) =>
  *
  *   validated VisualAction ─► provider selection ─► retrieve / construct ─► normalize ─► VisualTarget
  *
- * Glyph actions (clock, number, text, symbol) are constructed on a canvas; portraits and images walk
- * the image provider chain; terrain walks the terrain provider chain. Every result is checked by the
+ * Glyph actions (clock, number, text, symbol) are constructed on a canvas; images first check the
+ * curated local assets, then (portraits too) walk the image provider chain; terrain walks the terrain
+ * provider chain. Every result is checked by the
  * particle sampler before it is handed on, so an unusable target never reaches the render loop.
  */
 export class VisualResolver {
@@ -55,7 +59,8 @@ export class VisualResolver {
       intent: action.type === "image" ? action.intent ?? "general" : action.type === "terrain" ? action.style ?? "terrain" : undefined,
     };
     this.lastTrace = trace;
-    const deadline = AbortSignal.timeout(this.deps.deadlineMs ?? resolverDefaults.deadlineMs);
+    const timeout = timeoutSignal(this.deps.deadlineMs ?? resolverDefaults.deadlineMs);
+    const deadline = timeout.signal;
     const bounded = AbortSignal.any([signal, deadline]);
     try {
       const { visual, label } = await this.construct(action, bounded, trace);
@@ -72,6 +77,7 @@ export class VisualResolver {
       trace.error = error instanceof Error && error.message !== failure ? `${failure} (${error.message.slice(0, 40)})` : failure;
       throw new ResolveError(failure);
     } finally {
+      timeout.clear();
       trace.resolveMs = Date.now() - started;
     }
   };
@@ -123,17 +129,43 @@ export class VisualResolver {
   }
 
   private async image(query: string, intent: ImageIntent, signal: AbortSignal, trace: ResolveTrace, kind: "image" | "portrait") {
+    const local = kind === "image" ? this.deps.localAssets?.match(query) : null;
+    if (local) return this.localAsset(local, intent, signal, trace);
     const { target, candidate } = await resolveImage(query, intent, this.images, signal, trace, kind);
     trace.provider = candidate.provider;
     trace.source = candidate.pageUrl ?? candidate.url;
     trace.sourceType = `${intent === "portrait" || intent === "celebrity" ? "portrait" : "image"} · ${candidate.mime ?? "image"}${candidate.license ? ` · ${candidate.license}` : ""}`;
     return { visual: target as VisualTarget, label: candidate.title || query };
   }
+
+  /**
+   * A query that names a curated asset is answered from the repository file or not at all: if the file
+   * is missing or unusable the action fails ("image-unavailable") instead of silently showing a web
+   * result. For first-party brand assets, the wrong image is worse than none.
+   */
+  private async localAsset(match: LocalAssetMatch, intent: ImageIntent, signal: AbortSignal, trace: ResolveTrace) {
+    const provider = this.deps.localAssets!;
+    const started = Date.now();
+    trace.provider = provider.name;
+    trace.source = match.asset.path;
+    try {
+      const { target, mime } = await provider.load(match.asset, intent, signal);
+      trace.fetchMs += Date.now() - started;
+      trace.chain.push({ provider: provider.name, outcome: `selected (${match.rule} match: ${match.asset.id})`, ms: Date.now() - started });
+      trace.sourceType = `local ${match.asset.type} · ${mime}`;
+      return { visual: target as VisualTarget, label: match.asset.brand };
+    } catch (error) {
+      signal.throwIfAborted();
+      const reason = error instanceof Error && /^[a-z0-9][a-z0-9-]{0,39}$/.test(error.message) ? error.message : "error";
+      trace.chain.push({ provider: provider.name, outcome: `unavailable (${reason}); no external fallback`, ms: Date.now() - started });
+      throw new ResolveError("image-unavailable");
+    }
+  }
 }
 
 function describe(trace: ResolveTrace, visual: VisualTarget) {
   trace.targetType = visual.kind;
-  if (visual.kind === "raster2d") trace.raster = { width: visual.raster.width, height: visual.raster.height };
+  if (visual.kind === "raster2d") { trace.targetStyle = visual.style; trace.raster = { width: visual.raster.width, height: visual.raster.height }; }
   if (visual.kind === "heightfield") {
     const { min, max } = heightRange(visual.field);
     trace.field = { width: visual.field.width, height: visual.field.height, min, max, elevation: visual.field.elevation };
