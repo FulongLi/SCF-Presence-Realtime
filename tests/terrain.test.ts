@@ -248,7 +248,7 @@ test("resolver: a terrain action becomes a HeightField target with elevation dia
   const locate = async () => ({ label: "Testland", provider: "test", box: { west: 0, east: 2, south: 50, north: 51.5 } });
   const resolver = new VisualResolver({
     imageProviders: [], terrainProviders: [elevationTilesProvider(decode, request, locate)], decodeImage: decode,
-    glyphs: { text: () => { throw new Error("unused"); }, symbol: () => { throw new Error("unused"); } },
+    glyphs: { text: () => { throw new Error("unused"); }, symbol: () => { throw new Error("unused"); }, emoji: () => { throw new Error("unused"); } },
   });
   const target = await resolver.resolve({ type: "terrain", region: "Testland", style: "terrain" }, signal());
   assert.equal(target.visual.kind, "heightfield");

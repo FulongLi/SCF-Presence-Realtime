@@ -14,6 +14,32 @@ const PERSON = /^[\p{L}\p{M} .'’·\-]+$/u;
 const QUERY = /^[\p{L}\p{M}\p{N} .,'’·\-&()/:+#!?"]+$/u;
 const LINKISH = /(?:\/\/|www\.|\b(?:javascript|data|file|https?):(?!\s))/i;
 
+/**
+ * Emoji are validated as whole sequences, never by `.length`: one emoji can be many code points.
+ * The pattern is an allowlist of the RGI constructions, so ordinary text, markup, URLs and control
+ * characters cannot match:
+ * - an emoji character (Extended_Pictographic that is also Emoji, so digits, letters and unassigned
+ *   pictographic code points are excluded), optionally with a skin-tone modifier and/or VS-16;
+ * - up to four of those joined by ZWJ (👨‍🚀, 👨‍👩‍👧‍👦, 👩‍❤️‍💋‍👨);
+ * - a regional-indicator pair (🇬🇧), a keycap (1️⃣, #️⃣) or a tag sequence (🏴󠁧󠁢󠁷󠁬󠁳󠁿).
+ */
+const EMOJI_ELEMENT = String.raw`(?:(?=\p{Emoji})\p{Extended_Pictographic}(?:\p{Emoji_Modifier}️?|️)?)`;
+const EMOJI = new RegExp(String.raw`^(?:${EMOJI_ELEMENT}(?:‍${EMOJI_ELEMENT}){0,3}`
+  + String.raw`|\p{Regional_Indicator}{2}|[0-9#*]️?⃣|\u{1F3F4}[\u{E0020}-\u{E007E}]{1,8}\u{E007F})$`, "u");
+const graphemeSegmenter = typeof Intl !== "undefined" && "Segmenter" in Intl ? new Intl.Segmenter(undefined, { granularity: "grapheme" }) : null;
+
+/**
+ * Exactly one emoji: a single grapheme cluster (Unicode segmentation, `Intl.Segmenter`) that is an
+ * emoji sequence. Rejects empty strings, text, markup, URLs, control characters and several emoji
+ * ("😊😂"). Where `Intl.Segmenter` is missing, the anchored pattern alone still admits only one sequence.
+ */
+export function isSingleEmojiGrapheme(value: unknown): value is string {
+  if (typeof value !== "string" || value.length === 0 || value.length > 32 || !EMOJI.test(value)) return false;
+  if (!graphemeSegmenter) return true;
+  const segments = graphemeSegmenter.segment(value)[Symbol.iterator]();
+  return !segments.next().done && Boolean(segments.next().done);
+}
+
 /** Open text for image queries and terrain regions: generous, but never markup, a URL or control text. */
 export function validQuery(value: unknown, max: number): value is string {
   return typeof value === "string" && value === value.trim() && value.length > 0 && Array.from(value).length <= max
@@ -71,6 +97,8 @@ export function validateVisualAction(value: unknown): VisualAction | null {
     case "symbol":
       return onlyKeys(value, ["type", "value"]) && SYMBOL_NAMES.includes(value.value as SymbolName)
         ? { type: "symbol", value: value.value as SymbolName } : null;
+    case "emoji":
+      return onlyKeys(value, ["type", "value"]) && isSingleEmojiGrapheme(value.value) ? { type: "emoji", value: value.value } : null;
     case "portrait": {
       if (!onlyKeys(value, ["type", "person", "imageUrl"])) return null;
       const action: VisualAction = { type: "portrait" };

@@ -4,7 +4,7 @@ SCF Presence Realtime is a native realtime voice AI with a living visual body. I
 
 It has **two selectable voice backends** that drive the same body, for A/B comparison: the **OpenAI Realtime API** (the stable baseline) and **GPT-Live** (`gpt-live-1`, full duplex) with a **Responses backend** that reasons and selects the same visual tools. See [Voice backends](#voice-backends-realtime-and-gpt-live).
 
-The particle sphere is the interface. There is no chat window, waveform or dashboard. The AI hears you, thinks, answers in its own voice, and sometimes takes a brief visual shape. That can be a person, a car, a product, a map, the terrain of a real region, or a time, number, word or symbol. Then it returns to the sphere.
+The particle sphere is the interface. There is no chat window, waveform or dashboard. The AI hears you, thinks, answers in its own voice, and sometimes takes a brief visual shape. That can be a person, a car, a product, a map, the terrain of a real region, a time, number, word or symbol, or a brief emoji reaction like 🎉. Then it returns to the sphere.
 
 SCF supports **open 2D and 2.5D visual expression**: the AI isn't limited to a fixed set of icons. A Visual Resolver finds or builds an appropriate picture or height field for whatever is worth seeing. **True 3D object models are intentionally deferred** (see [the future 3D direction](docs/architecture.md#future-true-3d)).
 
@@ -125,7 +125,7 @@ Both backends share everything except the protocol adapter: the one microphone s
 
 ## Native visual tools
 
-The model gets eight function tools (see [`src/voice/tools/definitions.ts`](src/voice/tools/definitions.ts)). The same definitions are registered as Realtime `session.tools` and as GPT-Live `delegation.responses.tools`. Two are open. The rest are convenience shapes. There are no per-object tools like `show_car`, `show_mountain` or `show_company_logo`.
+The model gets nine function tools (see [`src/voice/tools/definitions.ts`](src/voice/tools/definitions.ts)). The same definitions are registered as Realtime `session.tools` and as GPT-Live `delegation.responses.tools`. Two are open, one shows any single emoji, and the rest are convenience shapes. There are no per-object or per-emoji tools like `show_car`, `show_mountain`, `show_company_logo` or `show_smile`.
 
 | Tool | Arguments | Becomes |
 | --- | --- | --- |
@@ -136,6 +136,7 @@ The model gets eight function tools (see [`src/voice/tools/definitions.ts`](src/
 | `show_number` | `{ value }` | `{ type: "number", value }`, e.g. `42%`, `23°C`, `£28,000` |
 | `show_text` | `{ value }` | `{ type: "text", value }`, one short word or label |
 | `show_symbol` | `{ symbol }` | `{ type: "symbol", value }`: check, cross, heart, star, question, exclamation, arrow-up/down/left/right, plus, minus |
+| `show_emoji` | `{ emoji }` | `{ type: "emoji", value }`: exactly one Unicode emoji grapheme (😊, ❤️, 👍🏻, 👨‍🚀, 🇬🇧, …). Drawn instantly from the system emoji font, no network; a brief expressive reaction, held 4 s. |
 | `return_to_sphere` | `{}` | `{ type: "sphere" }` |
 
 Every call maps onto the **same `VisualAction` schema** and passes strict `validateVisualAction()` checks before reaching the `VisualActionController`. Those checks are allowlists, length limits, no markup, URLs or control characters, and no unknown fields. Open queries are only ever used as search text.
@@ -150,6 +151,7 @@ GPT-Live lifecycle: `session.delegation.created` (the body may think) → nested
 tool call ─► validated VisualAction ─► Visual Resolver ─► VisualTarget ─► particle target ─► sphere → visual → sphere
                                         │
                                         ├─ glyphs   clock · number · text · symbol  (canvas)
+                                        ├─ emoji    system emoji font → canvas, no network  → raster2d/emoji
                                         ├─ images   local curated assets FIRST → wikipedia · commons · openverse · web(optional)  → Raster2DTarget
                                         │           (local assets: public/assets/, e.g. the Spirit Connect logo → raster2d/logo)
                                         └─ terrain  geocoder → AWS elevation tiles (→ relief image)  → HeightFieldTarget
@@ -217,7 +219,7 @@ The server stores nothing: no database, no conversation, no transcripts, no audi
   - Visual resolver: query or region, intent or style, provider fallback chain (including `local-assets`) with per-provider outcome and latency, selected provider and source, source type, target type and style (e.g. `raster2d/logo`), raster or height-field size, normalized height range and real elevation range, fetch and resolver latency, final status.
   - Presence: mode, visual phase, current visual, quality tier.
   - The in-memory transcript.
-- It also has one-click manual tests through the real tool executor: portrait Nikola Tesla; images Tesla Model Y, Taylor Swift and a futuristic concept car; terrain Wales and United Kingdom; **local asset: Spirit Connect logo** (the local-asset resolver without OpenAI); clock, text, number, symbol, sphere. It adds free-form `show_image`/`show_terrain` inputs, direct Visual Actions, and a local file as portrait, object or heightmap. That way body, resolver and local-asset problems can be separated from model tool-selection problems, on either backend. It never shows the API key, the ephemeral secret or any provider key.
+- It also has one-click manual tests through the real tool executor: portrait Nikola Tesla; images Tesla Model Y, Taylor Swift and a futuristic concept car; terrain Wales and United Kingdom; **local asset: Spirit Connect logo** (the local-asset resolver without OpenAI); clock, text, number, symbol; **emoji** 😊 🤔 🎉 🚀 ❤️ 👨‍🚀 🇬🇧 (plus an invalid `😊😂` that must report `invalid-arguments`); sphere. It adds free-form `show_image`/`show_emoji`/`show_terrain` inputs, direct Visual Actions, and a local file as portrait, object or heightmap. That way body, resolver and local-asset problems can be separated from model tool-selection problems, on either backend. It never shows the API key, the ephemeral secret or any provider key.
 - The debug panel is not in production builds unless `NEXT_PUBLIC_SCF_DEBUG=1`.
 
 ## Testing

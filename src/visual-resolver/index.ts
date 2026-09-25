@@ -1,3 +1,4 @@
+import { rasterizeEmoji } from "./providers/emoji";
 import { rasterizeSymbol, rasterizeText } from "./providers/glyphs";
 import { reliefImageProvider } from "./providers/terrain";
 import { VisualResolver } from "./resolve";
@@ -34,6 +35,6 @@ export function createBrowserResolver(): VisualResolver {
       reliefImageProvider({ providers: imageProviders, decode }),
     ],
     decodeImage: decode,
-    glyphs: { text: rasterizeText, symbol: rasterizeSymbol },
+    glyphs: { text: rasterizeText, symbol: rasterizeSymbol, emoji: rasterizeEmoji },
   });
 }

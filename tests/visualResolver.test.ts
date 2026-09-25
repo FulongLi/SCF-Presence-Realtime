@@ -280,7 +280,7 @@ function resolver(providers: ImageProvider[], request?: typeof fetch, deadlineMs
   const glyph = paint(20, 10, () => [255, 255, 255]);
   return new VisualResolver({
     imageProviders: providers, terrainProviders: [], decodeImage: decode, request, deadlineMs,
-    glyphs: { text: () => glyph, symbol: () => glyph }, now: () => new Date(2026, 8, 25, 9, 30),
+    glyphs: { text: () => glyph, symbol: () => glyph, emoji: () => glyph }, now: () => new Date(2026, 8, 25, 9, 30),
   });
 }
 

@@ -1,5 +1,5 @@
 import { ResolveError, type Raster, type Raster2DTarget } from "../types";
-import { borderColor, cropRaster, resizeRaster } from "./crop";
+import { borderColor, resizeRaster, trimTransparent } from "./crop";
 import { canvas, readCanvas } from "./raster";
 
 /**
@@ -107,18 +107,8 @@ export function normalizeLogoRaster(image: Raster, maxSide = svgLimits.side): Ra
   for (let i = 3; i < data.length; i += 4) if (data[i] < 250) translucent++;
   let raster = image;
   if (translucent / (width * height) < 0.02) raster = keyBackground(image);
-  let left = width, right = -1, top = height, bottom = -1;
-  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
-    if (raster.data[(y * width + x) * 4 + 3] > TRANSPARENT) {
-      if (x < left) left = x; if (x > right) right = x;
-      if (y < top) top = y; if (y > bottom) bottom = y;
-    }
-  }
-  if (right < left) throw new ResolveError("asset-empty");
-  const margin = Math.round(Math.max(right - left + 1, bottom - top + 1) * 0.04);
-  const x0 = Math.max(0, left - margin), y0 = Math.max(0, top - margin);
-  const x1 = Math.min(width, right + 1 + margin), y1 = Math.min(height, bottom + 1 + margin);
-  const trimmed = cropRaster(raster, x0, y0, Math.max(2, x1 - x0), Math.max(2, y1 - y0));
+  const trimmed = trimTransparent(raster, TRANSPARENT, 0.04);
+  if (!trimmed) throw new ResolveError("asset-empty");
   return { kind: "raster2d", style: "logo", raster: resizeRaster(trimmed, maxSide) };
 }
 

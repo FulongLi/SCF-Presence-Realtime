@@ -79,6 +79,26 @@ export function trimBackground(image: Raster, threshold = 0.16, margin = 0.06): 
   return kept < 0.12 || kept > 0.92 ? image : cropRaster(image, x0, y0, x1 - x0, y1 - y0);
 }
 
+/**
+ * Crops a raster on transparency to the bounding box of its visible pixels (alpha above `threshold`),
+ * keeping an even margin of `margin` × the longest visible side. Null when nothing is visible.
+ */
+export function trimTransparent(image: Raster, threshold = 24, margin = 0.04): Raster | null {
+  const { width, height, data } = image;
+  let left = width, right = -1, top = height, bottom = -1;
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    if (data[(y * width + x) * 4 + 3] > threshold) {
+      if (x < left) left = x; if (x > right) right = x;
+      if (y < top) top = y; if (y > bottom) bottom = y;
+    }
+  }
+  if (right < left) return null;
+  const pad = Math.round(Math.max(right - left + 1, bottom - top + 1) * margin);
+  const x0 = Math.max(0, left - pad), y0 = Math.max(0, top - pad);
+  const x1 = Math.min(width, right + 1 + pad), y1 = Math.min(height, bottom + 1 + pad);
+  return cropRaster(image, x0, y0, Math.max(2, x1 - x0), Math.max(2, y1 - y0));
+}
+
 /** Area-averaging downscale so the longest side is at most `maxSide` (never upscales). */
 export function resizeRaster(image: Raster, maxSide: number): Raster {
   const scale = Math.min(1, maxSide / Math.max(image.width, image.height));

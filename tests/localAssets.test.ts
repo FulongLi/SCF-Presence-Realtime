@@ -58,7 +58,7 @@ function resolver(options: { files?: Parameters<typeof server>[0]; assets?: read
     localAssets: localAssetProvider({ assets: options.assets, origin: () => ORIGIN, rasterizeSvg: fakeRasterize(sizes), decodeImage: async () => { throw new Error("unused"); }, request }),
     imageProviders: external.map(e => e.provider), terrainProviders: [], request,
     decodeImage: async () => { throw new Error("unused"); },
-    glyphs: { text: () => ({ width: 2, height: 2, data: new Uint8ClampedArray(16) }), symbol: () => ({ width: 2, height: 2, data: new Uint8ClampedArray(16) }) },
+    glyphs: { text: () => ({ width: 2, height: 2, data: new Uint8ClampedArray(16) }), symbol: () => ({ width: 2, height: 2, data: new Uint8ClampedArray(16) }), emoji: () => ({ width: 2, height: 2, data: new Uint8ClampedArray(16) }) },
   });
   const externalQueries = () => external.flatMap(e => e.queries);
   return { r, urls, externalQueries, sizes };

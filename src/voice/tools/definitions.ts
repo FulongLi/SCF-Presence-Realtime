@@ -5,12 +5,12 @@ import { IMAGE_INTENTS, SYMBOL_NAMES, TERRAIN_STYLES } from "../../visual-action
  * canonical definition for every voice backend — declared on the Realtime session (`session.tools`)
  * and on GPT-Live's Responses backend (`delegation.responses.tools`) — and every call is executed in
  * the browser by the same ToolExecutor. No MCP, no relay, no transcript inference. Keep the set
- * deliberately small: two open tools (show_image, show_terrain) backed by the Visual Resolver, plus a
- * few convenience shapes.
+ * deliberately small: two open tools (show_image, show_terrain) backed by the Visual Resolver, one
+ * open expressive tool (show_emoji, any single emoji, drawn locally), plus a few convenience shapes.
  */
 export const VISUAL_TOOL_NAMES = [
   "show_image", "show_terrain",
-  "show_clock", "show_portrait", "show_number", "show_text", "show_symbol", "return_to_sphere",
+  "show_clock", "show_portrait", "show_number", "show_text", "show_symbol", "show_emoji", "return_to_sphere",
 ] as const;
 export type VisualToolName = typeof VISUAL_TOOL_NAMES[number];
 
@@ -106,6 +106,17 @@ export const visualTools: readonly VisualFunctionTool[] = [
     parameters: object({
       symbol: { type: "string", enum: [...SYMBOL_NAMES], description: "Which symbol to show." },
     }, ["symbol"]),
+  },
+  {
+    type: "function",
+    name: "show_emoji",
+    description: "Briefly form one emoji with your particle body as a short expressive reaction, like a gesture: "
+      + "e.g. 🎉 for a celebration, 😂 amusement, 🤔 thinking, 😮 surprise, 👍 approval, 💡 an idea, 🚀 a launch. "
+      + "Also use it when the user asks to see an emoji. It is drawn instantly on the device (no image search). "
+      + "Use it only when a reaction genuinely adds to the moment, never on every reply or as filler.",
+    parameters: object({
+      emoji: { type: "string", description: "Exactly one Unicode emoji, e.g. \"😊\", \"❤️\", \"👍🏻\", \"👨‍🚀\", \"🇬🇧\". No text, and not several emoji." },
+    }, ["emoji"]),
   },
   {
     type: "function",

@@ -86,8 +86,11 @@ export function attachDebugPanel(container: HTMLElement, { controller, runtime }
     ["text: Hello", "show_text", { value: "Hello" }],
     ["number: 42%", "show_number", { value: "42%" }],
     ["symbol: check", "show_symbol", { symbol: "check" }],
+    // Emoji are drawn locally from the system emoji font: no OpenAI, no network, no image search.
+    ...["😊", "🤔", "🎉", "🚀", "❤️", "👨‍🚀", "🇬🇧"].map(emoji => [`emoji: ${emoji}`, "show_emoji", { emoji }] as [string, string, Record<string, unknown>]),
     ["sphere", "return_to_sphere", {}],
     ["bad args", "show_text", { value: "<script>" }],
+    ["bad emoji: 😊😂", "show_emoji", { emoji: "😊😂" }],
   ];
   for (const [label, name, args] of manual) button(label, toolRow, () => runTool(name, args));
   const imageRow = el("div", "", tools);
@@ -97,6 +100,11 @@ export function attachDebugPanel(container: HTMLElement, { controller, runtime }
   for (const name of IMAGE_INTENTS) { const option = el("option", name, intent); option.value = name; }
   intent.value = "general";
   button("show_image", imageRow, () => runTool("show_image", { query: query.value.trim(), intent: intent.value }));
+  const emojiRow = el("div", "", tools);
+  const emoji = el("input", "", emojiRow);
+  emoji.placeholder = "one emoji"; emoji.value = "💡"; emoji.size = 6;
+  // Sent as typed (only trimmed): invalid input reports invalid-arguments under "manual" above.
+  button("show_emoji", emojiRow, () => runTool("show_emoji", { emoji: emoji.value.trim() }));
   const terrainRow = el("div", "", tools);
   const region = el("input", "", terrainRow);
   region.placeholder = "region"; region.value = "Swiss Alps";

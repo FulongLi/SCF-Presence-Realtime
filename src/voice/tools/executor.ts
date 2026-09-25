@@ -99,6 +99,10 @@ export function toolCallToVisualAction(name: VisualToolName, args: Record<string
       if (!onlyKeys(args, ["symbol"])) return null;
       candidate = { type: "symbol", value: text("symbol")?.toLowerCase() };
       break;
+    case "show_emoji":
+      if (!onlyKeys(args, ["emoji"])) return null;
+      candidate = { type: "emoji", value: text("emoji") ?? args.emoji };
+      break;
     case "return_to_sphere":
       if (!onlyKeys(args, [])) return null;
       candidate = { type: "sphere" };

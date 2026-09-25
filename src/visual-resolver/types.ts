@@ -16,11 +16,14 @@ export interface Raster { width: number; height: number; data: Uint8ClampedArray
  * - glyph: alpha-weighted crisp shapes with even light (text, numbers, clocks, symbols).
  * - logo: a brand mark on transparency: alpha-shaped silhouette, strong edges (including colour
  *   boundaries inside the mark), even density and no photographic vignette.
+ * - emoji: one system-font emoji on transparency, only a source shape: density follows alpha, with
+ *   extra weight on the silhouette and on colour/luminance boundaries inside it (eyes, mouth), a thin
+ *   slab and tones from the emoji's own luminance range. Still SCF particles, never a flat sticker.
  */
 export interface Raster2DTarget {
   kind: "raster2d";
   raster: Raster;
-  style: "portrait" | "object" | "glyph" | "logo";
+  style: "portrait" | "object" | "glyph" | "logo" | "emoji";
 }
 
 /** A grid of normalized heights (0 = lowest shown, 1 = highest), row 0 is the far (north) edge. */
@@ -108,7 +111,7 @@ export interface ResolveTrace {
   source?: string;
   sourceType?: string;
   targetType?: VisualTarget["kind"];
-  /** The raster sampling style (portrait, object, glyph, logo). */
+  /** The raster sampling style (portrait, object, glyph, logo, emoji). */
   targetStyle?: Raster2DTarget["style"];
   raster?: { width: number; height: number };
   field?: { width: number; height: number; min: number; max: number; elevation?: { min: number; max: number } };

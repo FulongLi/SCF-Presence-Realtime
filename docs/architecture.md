@@ -19,7 +19,7 @@ src/
     client.ts                     VoiceClient: the small interface PresenceController drives
     webrtc.ts                     PeerLike / ChannelLike (mockable WebRTC shapes)
     visualGuidance.ts             visual-body and visual-tool rules shared by both prompts
-    tools/definitions.ts          the eight visual function tools (two open, six convenience): one schema
+    tools/definitions.ts          the nine visual function tools (two open, one emoji, six convenience): one schema
     tools/executor.ts             args → VisualAction → validate → VisualActionController (one executor)
     tools/results.ts              concise function_call_output payloads
   live/                           GPT-Live adapter (separate protocol, nothing shared with realtime/ events)
@@ -60,6 +60,7 @@ src/
     providers/rank.ts             deterministic candidate ranking
     providers/terrain.ts          terrain provider chain; relief-image fallback
     providers/glyphs.ts           clock, text, number, symbol (canvas)
+    providers/emoji.ts            one emoji from the system emoji font (canvas), trimmed, bounded LRU cache
     sources/localAssets.ts        curated first-party assets (manifest, matching, trusted same-origin loader)
     sources/wikimedia.ts          Wikipedia lead images, Wikimedia Commons file search
     sources/openverse.ts          Openverse open-license image search
@@ -196,7 +197,7 @@ conversation.item.create { type: "function_call_output", call_id, output: '{"ok"
 ```
 
 - **One schema.** Tools resolve into the `VisualAction` union and go through the validator and controller. There is no second visual schema.
-- **Tools.** `show_image { query, intent? }` and `show_terrain { region, style? }` are open: any query or place goes to the Visual Resolver. `show_clock`, `show_portrait`, `show_number`, `show_text`, `show_symbol` and `return_to_sphere` remain as convenience tools. `intent` and `style` are hints: an unknown value falls back to the default rather than failing the call.
+- **Tools.** `show_image { query, intent? }` and `show_terrain { region, style? }` are open: any query or place goes to the Visual Resolver. `show_emoji { emoji }` shows any single Unicode emoji as a brief expressive reaction (validated as exactly one grapheme cluster with `Intl.Segmenter` plus an allowlist pattern of emoji sequences: pictographs, skin tones, VS-16, ZWJ, flags, keycaps, tag flags). `show_clock`, `show_portrait`, `show_number`, `show_text`, `show_symbol` and `return_to_sphere` remain as convenience tools. `intent` and `style` are hints: an unknown value falls back to the default rather than failing the call.
 - **Concurrency.** An image or terrain forms while the model keeps talking. `morphSpeechBlend()` fades destructive speaking forces early in the morph, and a small audio-reactive shimmer stays, so portraits, clocks and text remain readable during speech.
 - **Failure** (invalid arguments, unknown tool, `image-not-found`, `image-unavailable`, `portrait-not-found`, `portrait-unavailable`, `region-not-found`, `terrain-unavailable`, superseded): the body stays or returns to the sphere, the model gets `{ ok: false, status }`, and it continues without the visual.
 - **Silence about tools.** The instructions tell the model the visual channel is auxiliary and not to be narrated. A response that already spoke gets no follow-up, so the model has no reason to comment on the tool result.
@@ -253,6 +254,7 @@ type VisualTarget = Raster2DTarget | HeightFieldTarget | Future3DTargetPlacehold
 | `Raster2DTarget` `style: "object"` | vehicles, products, objects, maps, reference images | density follows the colour distance from the image's own background (border median), plus some luminance and edges, so a dark car on a white floor becomes the car, not the floor |
 | `Raster2DTarget` `style: "glyph"` | clock, number, text, symbol | alpha-weighted crisp shapes, thin slab, even tones (unchanged) |
 | `Raster2DTarget` `style: "logo"` | curated brand marks (local assets) | alpha silhouette (transparent background ignored), even density with strong outline and colour-boundary edges, no vignette, thin slab, tones from the mark's own luminance range (even light for a one-colour mark) |
+| `Raster2DTarget` `style: "emoji"` | one emoji drawn from the OS emoji font (Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji); no network, no bundled font or images | density follows alpha (nothing from transparency, no vignette or background box): an even fill plus extra weight on the silhouette and on colour/luminance boundaries inside it (1–2 px bands), so 😊 keeps its eyes and mouth; thin slab with a hint of luminance relief; tones from the emoji's own luminance range, lifted on edges. The body stays particles, never a flat sticker |
 | `HeightFieldTarget` | terrain, topography, relief, grayscale heightmaps | see below |
 | `Future3DTargetPlaceholder` | nothing yet | cannot be constructed (`reserved: never`); the sampler rejects it |
 
@@ -346,7 +348,7 @@ The visual space is open, but the implementation stays bounded.
 
 ### Debugging
 
-`?debug=1` → **visual resolver** shows the last action, query or region, intent or style, every provider consulted with its outcome and latency (the fallback chain), the selected provider, source and source type (licence, elevation vs. brightness), target type, raster or height-field size, normalized height range and real elevation range, fetch latency, resolver latency and final status. **tools** has one-click acceptance tests through the real `ToolExecutor` (portrait: Nikola Tesla; image: Tesla Model Y, Taylor Swift, futuristic concept car; terrain: Wales, United Kingdom; clock, text, number, symbol, sphere), free-form `show_image` / `show_terrain` inputs, and a local file loader (as portrait, object or heightmap).
+`?debug=1` → **visual resolver** shows the last action, query or region, intent or style, every provider consulted with its outcome and latency (the fallback chain), the selected provider, source and source type (licence, elevation vs. brightness), target type, raster or height-field size, normalized height range and real elevation range, fetch latency, resolver latency and final status. **tools** has one-click acceptance tests through the real `ToolExecutor` (portrait: Nikola Tesla; image: Tesla Model Y, Taylor Swift, futuristic concept car; terrain: Wales, United Kingdom; clock, text, number, symbol; emoji: 😊 🤔 🎉 🚀 ❤️ 👨‍🚀 🇬🇧 and an invalid 😊😂; sphere), free-form `show_image` / `show_emoji` / `show_terrain` inputs, and a local file loader (as portrait, object or heightmap).
 
 ### Limitations
 
@@ -355,6 +357,7 @@ The visual space is open, but the implementation stays bounded.
 - Without `BRAVE_SEARCH_API_KEY`, imagery is limited to openly licensed sources. Recent products and some public figures may have no usable open image, and the tool reports `image-not-found` or `portrait-not-found`.
 - Terrain relies on third-party public services (Nominatim, Photon, AWS Terrain Tiles, Openverse). They can be rate-limited or unreachable, and the resolver reports `terrain-unavailable` or `image-unavailable`.
 - Terrain uses one geocoder hit (the most important match), one zoom level and a coarse grid. Very small features lose detail, and continent-scale regions are capped. The outline mask comes from OpenStreetMap boundaries, and sea is removed by elevation (≤ 0 m), so land below sea level (e.g. Dutch polders) can look missing.
+- Emoji come from whatever colour emoji font the system has, so the same emoji looks slightly different on macOS, Windows and Linux. A system without a colour emoji font may draw a monochrome glyph (still sampled, as a silhouette) or nothing (the action fails as unresolved). A ZWJ sequence the font doesn't know is drawn as its parts side by side.
 - Elevation decoding reads exact canvas pixels. Browsers that add fingerprinting noise to canvas readback (e.g. Safari Private Browsing) perturb the decoded heights. Smoothing and percentile normalization absorb small noise, but the relief can look rougher there.
 - The keyed route relies on the origin check only (like the token route). Put authentication in front of public deployments.
 

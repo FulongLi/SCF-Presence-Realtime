@@ -38,10 +38,12 @@ function pickCell(distribution: Float64Array, pick: number) {
  * - glyph: alpha-weighted density with edge emphasis, a thin volumetric slab and even tones.
  * - logo: like glyph (alpha silhouette, no vignette, thin slab), with even density, strong outline and
  *   colour-boundary edges so inner details of a mark survive, and tones from the mark's own contrast.
+ * - emoji: see emojiPoints().
  */
 function rasterPoints(target: Raster2DTarget, count: number): TargetPoints {
   const image = target.raster;
   validateRaster(image);
+  if (target.style === "emoji") return emojiPoints(image, count);
   const { width, height, data } = image;
   const { style } = target;
   const glyph = style === "glyph", logo = style === "logo";
@@ -102,6 +104,66 @@ function rasterPoints(target: Raster2DTarget, count: number): TargetPoints {
       positions.set([x, y, (value - 0.5) * 0.17 + (next() - 0.5) * 0.07], i * 3);
       tones[i] = subject ? 0.14 + Math.pow(value, 1.1) * 0.78 : 0.08 + Math.pow(value, 1.15) * 0.82;
     }
+  }
+  return { positions, tones };
+}
+
+/** Neighbour offsets for emoji edges: one and two pixels in each direction, so thin features get a visible band. */
+const EMOJI_NEIGHBOURS = [[1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [-2, 0], [0, 2], [0, -2]] as const;
+
+/**
+ * An emoji (a system-font glyph on transparency) is a source shape, not a sticker: the body keeps its
+ * own particles and light. Density follows alpha, so transparent pixels get nothing and there is no
+ * background box or vignette. On top of an even fill (so flat areas stay readable), the silhouette and
+ * the colour/luminance boundaries inside it get extra weight, so 😊 keeps its eyes and mouth and ❤️ its
+ * outline. Tones come from the emoji's own luminance range, lifted a little on edges; Z is a thin slab
+ * with a hint of luminance relief. Sized so one emoji reads clearly on the stage.
+ */
+function emojiPoints(image: Raster, count: number): TargetPoints {
+  const { width, height, data } = image;
+  const length = width * height;
+  const alpha = new Float32Array(length), lum = new Float32Array(length), edge = new Float32Array(length);
+  let lumLow = 1, lumHigh = 0;
+  for (let i = 0; i < length; i++) {
+    alpha[i] = data[i * 4 + 3] / 255;
+    lum[i] = luminance(data, i);
+    if (alpha[i] > 0.5) { lumLow = Math.min(lumLow, lum[i]); lumHigh = Math.max(lumHigh, lum[i]); }
+  }
+  const colour = (a: number, b: number) =>
+    (Math.abs(data[a * 4] - data[b * 4]) + Math.abs(data[a * 4 + 1] - data[b * 4 + 1]) + Math.abs(data[a * 4 + 2] - data[b * 4 + 2])) / 765;
+  const distribution = new Float64Array(length);
+  let total = 0;
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    const i = y * width + x;
+    if (alpha[i] > 0.3) {
+      let silhouette = 0, inner = 0;
+      for (const [dx, dy] of EMOJI_NEIGHBOURS) {
+        const nx = x + dx, ny = y + dy;
+        const j = ny * width + nx;
+        const outside = nx < 0 || ny < 0 || nx >= width || ny >= height;
+        silhouette = Math.max(silhouette, alpha[i] - (outside ? 0 : alpha[j]));
+        if (!outside && alpha[j] > 0.3) inner = Math.max(inner, Math.abs(lum[i] - lum[j]) + colour(i, j) * 0.8);
+      }
+      silhouette = Math.min(1, Math.max(0, silhouette) * 1.4);
+      inner = Math.min(1, inner * 2.5);
+      edge[i] = Math.max(silhouette, inner);
+      total += alpha[i] * (0.55 + silhouette * 2.2 + inner * 3);
+    }
+    distribution[i] = total;
+  }
+  if (total < 0.01) throw new Error("empty-raster");
+  const positions = new Float32Array(count * 3), tones = new Float32Array(count);
+  const aspect = width / height;
+  const h = Math.min(2.5, 3.2 / aspect), w = h * aspect;
+  const spread = lumHigh - lumLow;
+  const next = random(0xe3017);
+  for (let i = 0; i < count; i++) {
+    const cell = pickCell(distribution, next() * total);
+    const x = ((cell % width + next()) / width - 0.5) * w;
+    const y = (0.5 - (Math.floor(cell / width) + next()) / height) * h;
+    const level = spread < 0.12 ? 0.7 : Math.max(0, Math.min(1, (lum[cell] - lumLow) / spread));
+    positions.set([x, y, (next() - 0.5) * 0.12 + (level - 0.5) * 0.05], i * 3);
+    tones[i] = Math.min(1, (spread < 0.12 ? 0.66 : 0.3 + 0.6 * level) + edge[cell] * 0.12 + (next() - 0.5) * 0.06);
   }
   return { positions, tones };
 }

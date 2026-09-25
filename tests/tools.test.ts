@@ -162,7 +162,7 @@ test("the open tools lead the tool set and say what they can show", () => {
   assert.deepEqual(terrain.parameters.required, ["region"]);
   assert.deepEqual(terrain.parameters.properties.style.enum, [...TERRAIN_STYLES]);
   assert.match(image.description, /person, vehicle, product, object/);
-  assert.equal(VISUAL_TOOL_NAMES.length, 8, "two open tools plus six convenience tools; no per-object tools");
+  assert.equal(VISUAL_TOOL_NAMES.length, 9, "two open tools, one emoji tool and six convenience tools; no per-object or per-emoji tools");
   assert.match(PRESENCE_INSTRUCTIONS, /not limited to a small fixed vocabulary/);
   assert.match(PRESENCE_INSTRUCTIONS, /Never mention tools/);
 });

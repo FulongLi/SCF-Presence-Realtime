@@ -20,7 +20,8 @@ export interface ResolverDeps {
   terrainProviders: readonly TerrainProvider[];
   /** Decodes a downloaded or local image into a raster (browser: canvas). */
   decodeImage: (blob: Blob) => Promise<Raster>;
-  glyphs: { text: (value: string) => Raster; symbol: (name: SymbolName) => Raster };
+  /** Constructed visuals, drawn locally (browser: canvas; emoji from the system emoji font). */
+  glyphs: { text: (value: string) => Raster; symbol: (name: SymbolName) => Raster; emoji: (value: string) => Raster };
   request?: Fetcher;
   now?: () => Date;
   /** Upper bound for one resolution, whatever the provider chain does. */
@@ -38,7 +39,8 @@ const family = (action: InformationAction) =>
  *
  *   validated VisualAction ─► provider selection ─► retrieve / construct ─► normalize ─► VisualTarget
  *
- * Glyph actions (clock, number, text, symbol) are constructed on a canvas; images first check the
+ * Glyph actions (clock, number, text, symbol) and emoji are constructed locally on a canvas, with no
+ * provider chain and no network; images first check the
  * curated local assets, then (portraits too) walk the image provider chain; terrain walks the terrain
  * provider chain. Every result is checked by the
  * particle sampler before it is handed on, so an unusable target never reaches the render loop.
@@ -55,7 +57,8 @@ export class VisualResolver {
     const started = Date.now();
     const trace: ResolveTrace = {
       action: action.type, status: "resolving", chain: [], fetchMs: 0,
-      query: action.type === "image" ? action.query : action.type === "terrain" ? action.region : action.type === "portrait" ? action.person ?? action.imageUrl : undefined,
+      query: action.type === "image" ? action.query : action.type === "terrain" ? action.region : action.type === "portrait" ? action.person ?? action.imageUrl
+        : action.type === "emoji" ? action.value : undefined,
       intent: action.type === "image" ? action.intent ?? "general" : action.type === "terrain" ? action.style ?? "terrain" : undefined,
     };
     this.lastTrace = trace;
@@ -106,6 +109,13 @@ export class VisualResolver {
       case "number":
       case "text": return glyph(this.deps.glyphs.text(action.value), action.value);
       case "symbol": return glyph(this.deps.glyphs.symbol(action.value), action.value);
+      case "emoji": {
+        const started = Date.now();
+        const raster = this.deps.glyphs.emoji(action.value);
+        trace.chain.push({ provider: "canvas", outcome: "constructed (system emoji font, no network)", ms: Date.now() - started });
+        trace.provider = "canvas"; trace.sourceType = "constructed emoji";
+        return { visual: { kind: "raster2d", style: "emoji", raster }, label: action.value };
+      }
       case "portrait": {
         if (action.imageUrl) {
           const started = Date.now();
