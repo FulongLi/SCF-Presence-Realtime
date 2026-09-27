@@ -8,7 +8,7 @@ import { bounds, polylineLength, type Path, type Point } from "../../geometry/pa
  * same night sky as the star maps.
  */
 export const STAR_GLYPH_STYLE = {
-  dust: 0.22,
+  dust: 0.15,
   width: 0.05,
   tone: 0.84,
   /** Stars at the open ends of strokes. */

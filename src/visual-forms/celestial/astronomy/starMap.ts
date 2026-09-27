@@ -13,17 +13,17 @@ import { chart } from "./projection";
  */
 export const STAR_MAP_STYLE = {
   /** Share of the body left as background dust. */
-  dust: 0.3,
+  dust: 0.2,
   /** Share of the non-dust body spent on the figure's lines (when shown). */
   lineShare: 0.16,
   lineWidth: 0.009,
-  lineTone: 0.3,
+  lineTone: 0.16,
   /** Gap between a line's end and its star: this much plus the star's radius. */
   lineGap: 0.03,
   /** Star core radius from faintest to brightest (normalized units). */
   radius: [0.012, 0.05] as const,
   tone: [0.5, 1] as const,
-  hazeTone: 0.22,
+  hazeTone: 0.14,
 };
 
 /**

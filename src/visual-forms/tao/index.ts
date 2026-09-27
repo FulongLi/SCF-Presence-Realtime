@@ -1,6 +1,6 @@
 import type { VisualFormEntry, VisualFormPack } from "../types";
 import { renderBagua, renderLine, renderTrigram, renderYinYang } from "./draw";
-import { BAGUA_ARRANGEMENTS, TRIGRAM_ORDER, TRIGRAMS } from "./trigrams";
+import { TRIGRAM_ORDER, TRIGRAMS } from "./trigrams";
 
 /**
  * The Tao / Eastern symbol pack: the yin-yang, the two lines, the eight trigrams and the bagua. Calm forms
@@ -73,6 +73,3 @@ export const taoPack: VisualFormPack = {
     },
   ],
 };
-
-/** Exposed for tests and docs: every arrangement the bagua form can draw. */
-export const BAGUA_VARIANTS = Object.keys(BAGUA_ARRANGEMENTS) as (keyof typeof BAGUA_ARRANGEMENTS)[];
