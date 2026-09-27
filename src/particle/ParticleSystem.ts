@@ -7,7 +7,7 @@ import { createTargetPoints, type TargetPoints } from "@/visual-resolver/points"
 import type { MorphTarget } from "@/visual-actions/types";
 import { createSphere } from "./sphere/createSphere";
 import { createUniforms } from "./physics/uniforms";
-import { morphWeight } from "./physics/morph";
+import { formedTarget, morphWeight } from "./physics/morph";
 import { pusherForce } from "./physics/pusherPhysics";
 import { presenceForce } from "./physics/presenceField";
 import { integrateSpring } from "./physics/springPhysics";
@@ -35,7 +35,7 @@ export function createParticleSystem(capacity: number, config: ParticleConfig, p
     const o = offsets.element(instanceIndex);
     const v = velocities.element(instanceIndex);
     const m = morphWeight(r, u);
-    const base = mix(r, target.element(instanceIndex), m);
+    const base = mix(r, formedTarget(target.element(instanceIndex), u), m);
     const sphereForce = presenceForce(r, s, u).mul(float(1).sub(m));
     // A formed visual action still breathes and answers speech, in a restrained way: a slow travelling
     // ripple plus a speech shimmer along the view axis (depth keeps the image legible), where each

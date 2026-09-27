@@ -1,10 +1,12 @@
+import { visualForms } from "../visual-forms";
 import { IMAGE_INTENTS, SYMBOL_NAMES, TERRAIN_STYLES, type ImageIntent, type SymbolName, type TerrainStyle, type VisualAction } from "./types";
 
 const record = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype;
 const onlyKeys = (value: Record<string, unknown>, allowed: string[]) => Object.keys(value).every(key => allowed.includes(key));
 const graphemes = (value: string) => Array.from(value).length;
-const CONTROL = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069]/u;
+/** Control, zero-width and bidirectional-override characters: never part of a name, query or label. */
+export const CONTROL = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069]/u;
 
 export const CLOCK_TIME = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 const NUMBER = /^[+\-−]?\p{Sc}?\d[\d.,:/ ]*(?:%|°[CF]?|\p{Sc})?$/u;
@@ -99,6 +101,14 @@ export function validateVisualAction(value: unknown): VisualAction | null {
         ? { type: "symbol", value: value.value as SymbolName } : null;
     case "emoji":
       return onlyKeys(value, ["type", "value"]) && isSingleEmojiGrapheme(value.value) ? { type: "emoji", value: value.value } : null;
+    case "form": {
+      // Only registered form ids, and only variants that form declares: an allowlist, like symbols.
+      if (!onlyKeys(value, ["type", "form", "variant"]) || typeof value.form !== "string") return null;
+      const entry = visualForms.get(value.form);
+      if (!entry) return null;
+      if (value.variant === undefined) return { type: "form", form: entry.id };
+      return entry.variants?.some(variant => variant.id === value.variant) ? { type: "form", form: entry.id, variant: value.variant as string } : null;
+    }
     case "portrait": {
       if (!onlyKeys(value, ["type", "person", "imageUrl"])) return null;
       const action: VisualAction = { type: "portrait" };

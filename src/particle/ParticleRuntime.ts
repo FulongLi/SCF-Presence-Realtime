@@ -94,7 +94,7 @@ export async function createParticleRuntime(
   const calm = () => options.reducedMotion !== false && reducedMotion.matches;
   renderer.domElement.setAttribute("aria-hidden", "true");
   container.append(renderer.domElement);
-  let stopped = false, frame = 0, revision = -1, accumulator = 0, frameMs = 16.7, fitted = 7.4;
+  let stopped = false, frame = 0, revision = -1, accumulator = 0, frameMs = 16.7, fitted = 7.4, spinAngle = 0;
   let last = performance.now();
   const stage = () => {
     if (!options.stage) return;
@@ -150,11 +150,16 @@ export async function createParticleRuntime(
     // The controller only replaces its target while the body is a sphere, so this upload never snaps.
     if (revision !== inputs.morph.revision) {
       revision = inputs.morph.revision;
+      spinAngle = 0;
       if (inputs.morph.target) {
         try { system.setTarget(inputs.morph.target); } catch { /* invalid targets are rejected upstream */ }
       }
     }
     u.morph.value = morph;
+    // A spinning visual (MorphTarget.motion) turns slowly about the view axis; each new target starts upright.
+    const spin = inputs.morph.target?.motion?.spin ?? 0;
+    if (morph > 0 && Number.isFinite(spin) && spin !== 0) spinAngle = (spinAngle + spin * dt * (calm() ? 0.15 : 1)) % (Math.PI * 2);
+    u.formedAngle.value = spinAngle;
     const blend = morphSpeechBlend(morph);
     u.speechGain.value = blend.speech; u.formedShimmer.value = blend.shimmer;
     for (let i = 0; i < presence.assistantBands.length; i++) u.spectrum.array[i] = presence.assistantBands[i];

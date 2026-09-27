@@ -19,11 +19,14 @@ export interface Raster { width: number; height: number; data: Uint8ClampedArray
  * - emoji: one system-font emoji on transparency, only a source shape: density follows alpha, with
  *   extra weight on the silhouette and on colour/luminance boundaries inside it (eyes, mouth), a thin
  *   slab and tones from the emoji's own luminance range. Still SCF particles, never a flat sticker.
+ * - ink: a procedural monochrome form (a visual form such as the yin-yang): alpha is density, read as a
+ *   continuous amount rather than a mask, so a pale wash becomes sparse particles and a full stroke
+ *   dense ones; RGB is tone. Edges are weighted, the slab is thin and calm.
  */
 export interface Raster2DTarget {
   kind: "raster2d";
   raster: Raster;
-  style: "portrait" | "object" | "glyph" | "logo" | "emoji";
+  style: "portrait" | "object" | "glyph" | "logo" | "emoji" | "ink";
 }
 
 /** A grid of normalized heights (0 = lowest shown, 1 = highest), row 0 is the far (north) edge. */
@@ -49,6 +52,30 @@ export interface HeightFieldTarget {
 }
 
 /**
+ * A procedural arrangement of weighted points and strokes, sampled into particles directly with no raster
+ * in between: star maps and star-drawn glyphs today; graphs, molecules, lattices or plots later.
+ * Coordinates are normalized (x right, y up) and lie within [-1, 1] on both axes.
+ */
+export interface PointLayout {
+  /** Particles gather around each point in proportion to `weight`, spread over `radius`, lit by `tone` (0..1). */
+  points: { x: number; y: number; weight: number; radius: number; tone: number }[];
+  /** Particles are strewn along each polyline (flat [x0, y0, x1, y1, …]) in proportion to `weight` × length. */
+  strokes: { points: number[]; width: number; weight: number; tone: number }[];
+  /** Fraction (0..0.8) of the body spread thinly and dimly over the frame, as a quiet background. */
+  dust: number;
+}
+
+/**
+ * - celestial: sparse and deep. Points are luminous cores that fade outward, each at its own depth; strokes
+ *   are fine lines; the dust is a field of faint, distant grains.
+ */
+export interface PointLayoutTarget {
+  kind: "points";
+  layout: PointLayout;
+  style: "celestial";
+}
+
+/**
  * Reserved extension point for true 3D (point clouds, mesh surface samples, volumes). It cannot be
  * constructed today (`reserved: never`), so nothing produces it and the sampler rejects it; adding a
  * real 3D kind means one new member here, one sampler branch and one provider.
@@ -58,7 +85,7 @@ export interface Future3DTargetPlaceholder {
   reserved: never;
 }
 
-export type VisualTarget = Raster2DTarget | HeightFieldTarget | Future3DTargetPlaceholder;
+export type VisualTarget = Raster2DTarget | HeightFieldTarget | PointLayoutTarget | Future3DTargetPlaceholder;
 
 /** One image a provider found. `load` lets a provider hand over bytes directly (e.g. a server route). */
 export interface ImageCandidate {
@@ -111,9 +138,10 @@ export interface ResolveTrace {
   source?: string;
   sourceType?: string;
   targetType?: VisualTarget["kind"];
-  /** The raster sampling style (portrait, object, glyph, logo, emoji). */
-  targetStyle?: Raster2DTarget["style"];
+  /** The sampling style (raster: portrait, object, glyph, logo, emoji, ink; point layout: celestial). */
+  targetStyle?: Raster2DTarget["style"] | PointLayoutTarget["style"];
   raster?: { width: number; height: number };
+  layout?: { points: number; strokes: number };
   field?: { width: number; height: number; min: number; max: number; elevation?: { min: number; max: number } };
   fetchMs: number;
   resolveMs?: number;

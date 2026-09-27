@@ -4,7 +4,7 @@ SCF Presence Realtime is a native realtime voice AI with a living visual body. I
 
 It has **two selectable voice backends** that drive the same body, for A/B comparison: the **OpenAI Realtime API** (the stable baseline) and **GPT-Live** (`gpt-live-1`, full duplex) with a **Responses backend** that reasons and selects the same visual tools. See [Voice backends](#voice-backends-realtime-and-gpt-live).
 
-The particle sphere is the interface. There is no chat window, waveform or dashboard. The AI hears you, thinks, answers in its own voice, and sometimes takes a brief visual shape. That can be a person, a car, a product, a map, the terrain of a real region, a time, number, word or symbol, or a brief emoji reaction like 🎉. Then it returns to the sphere.
+The particle sphere is the interface. There is no chat window, waveform or dashboard. The AI hears you, thinks, answers in its own voice, and sometimes takes a brief visual shape. That can be a person, a car, a product, a map, the terrain of a real region, a time, number, word or symbol, or a brief emoji reaction like 🎉. It is also starting to develop **a visual language of its own**: a yin-yang, the eight trigrams, Orion or the ♈ sign are drawn directly from understanding, not found by an image search (see [Visual Form Packs](#visual-form-packs)). Then it returns to the sphere.
 
 SCF supports **open 2D and 2.5D visual expression**: the AI isn't limited to a fixed set of icons. A Visual Resolver finds or builds an appropriate picture or height field for whatever is worth seeing. **True 3D object models are intentionally deferred** (see [the future 3D direction](docs/architecture.md#future-true-3d)).
 
@@ -43,7 +43,7 @@ The Realtime path in detail (GPT-Live differs only in the box at the top and the
 │ Remote assistant audio ─► <audio> playback                   │
 │                         └► analyser (RMS + 16 bands) ► SPEAKING│
 │ Native function calls ─► ToolExecutor ─► VisualAction        │
-│   ─► Visual Resolver (images · terrain · glyphs) ─► morph    │
+│   ─► Visual Resolver (images·terrain·glyphs·forms) ─► morph  │
 │                                                   Particle body ●│
 └──────────────────────────────────────────────────────────────┘
           │ POST /api/realtime/token (once per session)
@@ -125,12 +125,13 @@ Both backends share everything except the protocol adapter: the one microphone s
 
 ## Native visual tools
 
-The model gets nine function tools (see [`src/voice/tools/definitions.ts`](src/voice/tools/definitions.ts)). The same definitions are registered as Realtime `session.tools` and as GPT-Live `delegation.responses.tools`. Two are open, one shows any single emoji, and the rest are convenience shapes. There are no per-object or per-emoji tools like `show_car`, `show_mountain`, `show_company_logo` or `show_smile`.
+The model gets ten function tools (see [`src/voice/tools/definitions.ts`](src/voice/tools/definitions.ts)). The same definitions are registered as Realtime `session.tools` and as GPT-Live `delegation.responses.tools`. Two are open, one draws any registered visual form, one shows any single emoji, and the rest are convenience shapes. There are no per-object, per-form or per-emoji tools like `show_car`, `show_mountain`, `show_company_logo`, `show_orion` or `show_smile`.
 
 | Tool | Arguments | Becomes |
 | --- | --- | --- |
 | `show_image` | `{ query, intent? }`, intent ∈ portrait, celebrity, object, vehicle, product, reference, map, general | `{ type: "image", query, intent }`. Any person, vehicle, product, object, logo, place, map or reference image: a curated local asset if the query names one, otherwise the image provider chain. |
 | `show_terrain` | `{ region, style? }`, style ∈ terrain, topography, relief, heightmap | `{ type: "terrain", region, style }`. Real elevation of any geocodable place as a 2.5D relief. |
+| `show_form` | `{ form, variant? }` | `{ type: "form", form: <registered id>, variant? }`. SCF's own visual language, drawn procedurally with no image search: Taoist symbols, constellations, zodiac and planetary glyphs. `form` is an id (`tao.qian`, `astronomy.orion`) or a name the registry resolves (`"yin yang"`, `"猎户座"`, `"Leo zodiac sign"`, `"♈"`); an unknown name reports `form-not-found`. |
 | `show_clock` | `{ time?: "HH:MM" }` | `{ type: "clock", time? }`. With no time it shows the local time, and the result tells the model that time. |
 | `show_portrait` | `{ person }` | `{ type: "portrait", person }`. The same image chain with the portrait intent: Wikipedia first, then other sources. |
 | `show_number` | `{ value }` | `{ type: "number", value }`, e.g. `42%`, `23°C`, `£28,000` |
@@ -152,6 +153,7 @@ tool call ─► validated VisualAction ─► Visual Resolver ─► VisualTarg
                                         │
                                         ├─ glyphs   clock · number · text · symbol  (canvas)
                                         ├─ emoji    system emoji font → canvas, no network  → raster2d/emoji
+                                        ├─ forms    visual form registry → procedural, no network  → raster2d/ink · points/celestial
                                         ├─ images   local curated assets FIRST → wikipedia · commons · openverse · web(optional)  → Raster2DTarget
                                         │           (local assets: public/assets/, e.g. the Spirit Connect logo → raster2d/logo)
                                         └─ terrain  geocoder → AWS elevation tiles (→ relief image)  → HeightFieldTarget
@@ -166,6 +168,37 @@ tool call ─► validated VisualAction ─► Visual Resolver ─► VisualTarg
 - **Local brand assets first.** A `show_image` query that names a curated first-party asset (e.g. "Spirit Connect logo", "our company logo") is answered from the repository, never from a public search. See [Local brand assets](#local-brand-assets).
 
 Details, guardrails and the future 3D extension point: [docs/architecture.md → Visual Resolver](docs/architecture.md#visual-resolver-open-2d-and-25d-visuals).
+
+## Visual Form Packs
+
+Visual **retrieval** finds a picture of something; visual **language** is knowing how to draw it.
+
+```text
+visual retrieval:  AI ─► search an external visual ─► particle form
+visual language:   AI ─► understand the concept ─► procedural form ─► particles
+```
+
+`show_form` lets the AI form a concept directly, with the same particle body and the same lifecycle (sphere → form → sphere), with no network and no image search. Forms live in an extensible, data-driven registry ([`src/visual-forms/`](src/visual-forms/)): every entry has an id, a category, a renderer, a label, aliases (any language or script, plus the Unicode symbol) and optional variants. The tool's list of ids is generated from it, so both voice backends learn a new pack automatically.
+
+```text
+visual forms
+├── basic              the universal marks of show_symbol (check, cross, arrows, …), unchanged
+├── tao                ink: dense bright yang, a sparse pale yin wash, empty space
+│   ├── yin-yang       ☯ 太极 · turns slowly while held
+│   ├── trigrams       ☰ 乾 ☱ 兑 ☲ 离 ☳ 震 ☴ 巽 ☵ 坎 ☶ 艮 ☷ 坤 · plus the single yin and yang lines
+│   └── bagua          八卦 · Earlier Heaven (先天) or Later Heaven (后天)
+│
+└── celestial          sparse, deep, faint dust
+    ├── astronomy
+    │   └── constellations   Orion · Ursa Major · Cassiopeia · Scorpius · Leo · Cygnus · Pleiades
+    │                        (from J2000 RA/Dec and magnitudes; brighter stars are denser cores; subtle optional lines)
+    └── astrology
+        └── zodiac           ♈ … ♓ (all twelve) · planetary symbols ☉ ☽ ☿ ♀ ♂ ♃ ♄ (glyphs drawn in stars)
+```
+
+Try it: "Show me yin yang." "Show me the Eight Trigrams." "Show me Qian." "Show me Orion." "Show me the Pleiades." "Show me the Aries zodiac sign." Names resolve deterministically: "Leo" or "the Leo sign" is the zodiac glyph, "the Leo constellation" is the star map, "Scorpio" is the sign and "Scorpius" the constellation, and "fire trigram" is ☲. Ordinary words never claim a form alone (`show_form("fish")` is `form-not-found`, never Pisces).
+
+**Adding a pack** (math, physics, chemistry, biology, music, engineering, mythology, …) means adding its data and renderer and one entry in `VISUAL_FORM_PACKS`. The tool, validation, resolver, debug panel and tests pick it up. Forms render into the existing target types: filled shapes into `Raster2DTarget` (`ink` style), and point-and-line structures (star maps now; graphs and molecules later) into the new `PointLayoutTarget`. The particle runtime gained only one generic parameter, a slow `spin` for a formed visual. Details: [docs/architecture.md → Visual Form Packs](docs/architecture.md#visual-form-packs).
 
 ## Local brand assets
 
@@ -198,6 +231,7 @@ Your own company assets should not depend on public image search. They live in t
 | Assistant audio | OpenAI → your browser |
 | Particle and audio analysis (VAD, emphasis, spectrum) | Stays in the browser |
 | Visual Action execution | Stays in the browser |
+| Visual forms (`show_form`) | Drawn in the browser from data in the app; nothing is fetched or sent |
 | Image lookup (`show_image`, `show_portrait`) | Only the query text, sent anonymously (no cookies, no referrer) to Wikipedia/Wikimedia Commons and Openverse, and only when a visual is requested. Images are downloaded from their image hosts. With `BRAVE_SEARCH_API_KEY`, the query also goes through SCF's server to Brave Search. |
 | Terrain lookup (`show_terrain`) | Only the region name, to OpenStreetMap Nominatim (with the page origin, per its usage policy) or Photon. Elevation tiles come from AWS Open Data. |
 | Transcripts (optional) | Kept in page memory for `?debug=1`, never stored or sent anywhere |
@@ -219,7 +253,7 @@ The server stores nothing: no database, no conversation, no transcripts, no audi
   - Visual resolver: query or region, intent or style, provider fallback chain (including `local-assets`) with per-provider outcome and latency, selected provider and source, source type, target type and style (e.g. `raster2d/logo`), raster or height-field size, normalized height range and real elevation range, fetch and resolver latency, final status.
   - Presence: mode, visual phase, current visual, quality tier.
   - The in-memory transcript.
-- It also has one-click manual tests through the real tool executor: portrait Nikola Tesla; images Tesla Model Y, Taylor Swift and a futuristic concept car; terrain Wales and United Kingdom; **local asset: Spirit Connect logo** (the local-asset resolver without OpenAI); clock, text, number, symbol; **emoji** 😊 🤔 🎉 🚀 ❤️ 👨‍🚀 🇬🇧 (plus an invalid `😊😂` that must report `invalid-arguments`); sphere. It adds free-form `show_image`/`show_emoji`/`show_terrain` inputs, direct Visual Actions, and a local file as portrait, object or heightmap. That way body, resolver and local-asset problems can be separated from model tool-selection problems, on either backend. It never shows the API key, the ephemeral secret or any provider key.
+- It also has one-click manual tests through the real tool executor: portrait Nikola Tesla; images Tesla Model Y, Taylor Swift and a futuristic concept car; terrain Wales and United Kingdom; **local asset: Spirit Connect logo** (the local-asset resolver without OpenAI); clock, text, number, symbol; **emoji** 😊 🤔 🎉 🚀 ❤️ 👨‍🚀 🇬🇧 (plus an invalid `😊😂` that must report `invalid-arguments`); sphere. A **visual forms** section has Tao (Yin Yang, Qian, Kun, Li, Kan, Bagua), Astronomy (Orion, Ursa Major, Cassiopeia, Pleiades) and Astrology (Aries, Leo, Scorpio, Pisces) buttons, a picker with every registered form, and a free-form `show_form` name + variant input. It adds free-form `show_image`/`show_emoji`/`show_terrain` inputs, direct Visual Actions, and a local file as portrait, object or heightmap. That way body, resolver and local-asset problems can be separated from model tool-selection problems, on either backend. It never shows the API key, the ephemeral secret or any provider key.
 - The debug panel is not in production builds unless `NEXT_PUBLIC_SCF_DEBUG=1`.
 
 ## Promo film
@@ -261,6 +295,7 @@ The unit tests cover:
 - **Realtime:** event normalization; the state machine (lifecycle, interruptions, usage, stale state on disconnect); tool definitions (including `show_image` and `show_terrain`), argument mapping and validation, and executor results for every tool; the function-call loop (argument assembly, output, continuation rules, barge-in, deduplication, stale sessions); and the WebRTC client with mocked peer, data channel and transport (connect, idempotent connect, events, tool round trip, interruption, disconnect, bounded reconnect, permanent errors, peer grace period, stale callbacks, connect timeout); assistant audio (playback of the real remote track, analysis into speaking amplitude and spectrum, autoplay blocking); and the controller's side-effect-free construction and teardown.
 - **GPT-Live:** event normalization against the current Live event names (and that Realtime names are not accepted); the WebRTC client with mocked peer/channel (ICE gathering before the offer, connected only on `session.started`, no `session.start`, remote audio to `AssistantAudio`); Responses delegation (calls only from finished output items, `response.item.create` then `response.create`, one run per call id, no continuation for failed responses or a closing session, stale results dropped); hints (full duplex, reply window, stale delegations); graceful `session.close`/`session.closed` with a timeout; reconnect and permanent errors; the session route (same key, SDP forwarded, only the answer returned, frontend event allowlist, canonical tool definitions, split prompts, env fallbacks, error mapping).
 - **Backend switching:** `?voice=` → `SCF_VOICE_BACKEND` → realtime; the engine's full-duplex rules (overlap stays speaking, a cut hands over to listening, Realtime priority unchanged); reply latency; the controller switching backends without replacing the body.
+- **Visual forms:** registry ids, categories, aliases (English, Chinese, Unicode symbols), category hints and terms, rejection of duplicate ids and alias collisions, invalid and unknown forms; `show_form` argument mapping, variants and validation; the real `ToolExecutor` → controller → resolver path with no network (form → hold → sphere, `form-not-found`); one tool definition shared by Realtime and GPT-Live that lists every form; every form and variant rendering a valid target; the eight trigrams against Unicode and read back from their pixels; a centred, balanced, S-divided yin-yang; both bagua arrangements; catalogue parsing, chart normalization and Orion's structure (sky orientation, belt, magnitude → prominence); all zodiac and planetary glyphs; point-layout prefixes and rejection; the debug panel's form buttons.
 - **Local brand assets:** manifest, alias and brand matching (case-insensitive, company-logo aliases, unrelated queries never match), local-first priority with no external calls, missing/wrong-type/unsafe files failing without a web fallback, trusted paths only (no remote SVG), SVG safety checks, sizing and aspect ratio, transparency preservation and background keying, logo particle sampling, and `show_image` through the real `ToolExecutor`.
 - **Server:** the ephemeral secret request (GA session shape, no beta header), the hashed safety identifier, configuration fallbacks, origin and body checks, upstream error mapping, and the key never appearing in a response.
 
@@ -288,6 +323,7 @@ No database, queue, WebSocket server or extra infrastructure is needed.
 - **Reconnects start a new conversation.** OpenAI keeps the context only within a session. After a dropped connection or idle end, the model starts fresh.
 - **Images** are chosen heuristically, with no vision model. Without `BRAVE_SEARCH_API_KEY` they come only from openly licensed sources, so some recent products or public figures may have no usable image. The tool then reports `image-not-found`/`portrait-not-found` and the conversation continues. Portrait crops use a fixed head-and-shoulders band, not face detection.
 - **Terrain** is a 2.5D relief, not a GIS. It uses one geocoder match, one zoom level, a grid of at most 160 cells a side, and public services that can be rate-limited or unavailable (`terrain-unavailable`). Land below sea level is treated as sea.
+- **Visual forms are hand-authored.** Constellations come from transcribed catalogue positions and common stick figures (atlases differ), glyphs are drawn paths, and there is no live sky, ephemeris or natal chart. A concept without a form reports `form-not-found`, and the model can fall back to `show_image`.
 - **No true 3D yet.** glTF/OBJ/STL models, meshes and point clouds are deliberately not supported. `VisualTarget` has a placeholder for them.
 - **Visual quality was not verified in CI.** Rendering is tested through its pure parts (sampling, lifecycle, blending). The WebGPU output itself needs the manual smoke test.
 

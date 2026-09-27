@@ -36,6 +36,8 @@ export function createUniforms(config: ParticleConfig) {
     energy: uniform(0.08), warmth: uniform(0.35), motion: uniform(1),
     // Visual Action ↔ speech blending (see morphBlend.ts).
     speechGain: uniform(1), formedShimmer: uniform(0),
+    // How far a spinning formed visual has turned (radians; see MorphTarget.motion).
+    formedAngle: uniform(0),
     size: uniform(config.geometry.size), ambient: uniform(config.lighting.ambient),
     key: uniform(config.lighting.key), fill: uniform(config.lighting.fill), wrap: uniform(config.lighting.wrap),
   };

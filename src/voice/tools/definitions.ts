@@ -1,15 +1,17 @@
 import { IMAGE_INTENTS, SYMBOL_NAMES, TERRAIN_STYLES } from "../../visual-actions/types";
+import { FORM_NAME_MAX, visualForms } from "../../visual-forms";
 
 /**
  * SCF's visual function tools: the AI's intentional channel to its particle body. This is the one
  * canonical definition for every voice backend — declared on the Realtime session (`session.tools`)
  * and on GPT-Live's Responses backend (`delegation.responses.tools`) — and every call is executed in
  * the browser by the same ToolExecutor. No MCP, no relay, no transcript inference. Keep the set
- * deliberately small: two open tools (show_image, show_terrain) backed by the Visual Resolver, one
- * open expressive tool (show_emoji, any single emoji, drawn locally), plus a few convenience shapes.
+ * deliberately small: two open tools (show_image, show_terrain) backed by the Visual Resolver, one tool
+ * for SCF's own visual language (show_form, every registered visual form), one open expressive tool
+ * (show_emoji, any single emoji, drawn locally), plus a few convenience shapes.
  */
 export const VISUAL_TOOL_NAMES = [
-  "show_image", "show_terrain",
+  "show_image", "show_terrain", "show_form",
   "show_clock", "show_portrait", "show_number", "show_text", "show_symbol", "show_emoji", "return_to_sphere",
 ] as const;
 export type VisualToolName = typeof VISUAL_TOOL_NAMES[number];
@@ -36,6 +38,24 @@ export interface VisualFunctionTool {
 const object = (properties: VisualFunctionTool["parameters"]["properties"] = {}, required: string[] = []) =>
   ({ type: "object" as const, properties, required, additionalProperties: false as const });
 
+/** Every registered form id, grouped by category: generated from the registry, so a new pack needs no edit here. */
+export function formCatalog(registry = visualForms): string {
+  return registry.categories()
+    .map(category => `${category.label}: ${registry.forms().filter(form => form.category === category.id).map(form => form.id).join(", ")}`)
+    .join(". ");
+}
+
+/** The variants forms declare, forms with the same set grouped together; the first is the default. */
+export function formVariantCatalog(registry = visualForms): string {
+  const groups = new Map<string, string[]>();
+  for (const form of registry.forms()) {
+    if (!form.variants?.length) continue;
+    const key = form.variants.map((variant, index) => `${variant.id}${index ? "" : " (default)"}`).join(" or ");
+    groups.set(key, [...(groups.get(key) ?? []), form.id]);
+  }
+  return [...groups].map(([variants, forms]) => `${forms.join(", ")}: ${variants}`).join("; ");
+}
+
 export const visualTools: readonly VisualFunctionTool[] = [
   {
     type: "function",
@@ -59,6 +79,19 @@ export const visualTools: readonly VisualFunctionTool[] = [
       region: { type: "string", description: "The place, e.g. \"Wales\", \"United Kingdom\", \"Swiss Alps\", \"Grand Canyon\". At most 80 characters." },
       style: { type: "string", enum: [...TERRAIN_STYLES], description: "Shading: terrain (default), topography (contour bands), relief (strong shading), heightmap (height only)." },
     }, ["region"]),
+  },
+  {
+    type: "function",
+    name: "show_form",
+    description: "Form a symbol or figure from SCF's own visual language directly with your particle body. It is drawn "
+      + "procedurally on the device, with no image search: Taoist symbols (the yin-yang/taiji, the yin and yang lines, the "
+      + "eight trigrams 乾 兑 离 震 巽 坎 艮 坤 and the bagua), constellations as star maps, the twelve zodiac signs and the "
+      + "planetary symbols. Always prefer it to show_image for these. Pass a form id from the list, or a plain name in "
+      + "English or Chinese (\"yin yang\", \"Orion\", \"Leo zodiac sign\", \"猎户座\").",
+    parameters: object({
+      form: { type: "string", description: `A form id or its common name; at most ${FORM_NAME_MAX} characters. Form ids: ${formCatalog()}.` },
+      variant: { type: "string", description: `Optional; omit for the default. ${formVariantCatalog()}.` },
+    }, ["form"]),
   },
   {
     type: "function",

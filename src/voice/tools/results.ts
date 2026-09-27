@@ -8,12 +8,13 @@ export type ToolStatus =
   | "portrait-not-found" | "portrait-unavailable"
   | "image-not-found" | "image-unavailable"
   | "region-not-found" | "terrain-unavailable"
+  | "form-not-found" | "form-unavailable"
   | "unresolved";
 
 export interface ToolResult {
   ok: boolean;
   status: ToolStatus;
-  /** What the body shows, when the model may want to say it (e.g. the local time). */
+  /** What the body shows, when the model may want to say it (e.g. the local time, or which form a name found). */
   shown?: string;
   /** For clocks: the user's IANA time zone, so a spoken time can be qualified if needed. */
   timeZone?: string;
@@ -24,7 +25,7 @@ export const failed = (status: Exclude<ToolStatus, "displayed" | "forming" | "re
 
 const FAILURES = new Set<string>([
   "portrait-not-found", "portrait-unavailable", "image-not-found", "image-unavailable",
-  "region-not-found", "terrain-unavailable", "superseded", "invalid-arguments", "unknown-tool",
+  "region-not-found", "terrain-unavailable", "form-not-found", "form-unavailable", "superseded", "invalid-arguments", "unknown-tool",
 ]);
 
 /** Maps a controller failure code (from the Visual Resolver) to a stable, model-facing status. */
@@ -33,6 +34,7 @@ export function failureStatus(code: string | null | undefined): ToolResult {
   if (code?.startsWith("portrait-")) return failed("portrait-unavailable");
   if (code?.startsWith("image-")) return failed("image-unavailable");
   if (code?.startsWith("terrain-") || code?.startsWith("heightfield-") || code?.startsWith("region-")) return failed("terrain-unavailable");
+  if (code?.startsWith("form-")) return failed("form-unavailable");
   return failed("unresolved");
 }
 

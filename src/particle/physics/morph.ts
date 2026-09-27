@@ -1,5 +1,5 @@
 import type { Node } from "three/webgpu";
-import { float, sin, vec3 } from "three/tsl";
+import { cos, float, sin, vec3 } from "three/tsl";
 import type { PhysicsUniforms } from "./uniforms";
 
 /**
@@ -11,4 +11,14 @@ export function morphWeight(rest: Node, u: PhysicsUniforms) {
   const hash = sin(rest.dot(vec3(12.9898, 78.233, 37.719))).mul(43758.5453).fract();
   const w = u.morph.mul(1.3).sub(hash.mul(0.3)).clamp(0, 1);
   return w.mul(w).mul(float(3).sub(w.mul(2)));
+}
+
+/**
+ * The formed visual's rest shape, turned about the view axis by `formedAngle` (the target's own spin
+ * accumulated by the runtime; 0, and so unchanged, for every target that does not spin). Compute and
+ * material use the identical expression.
+ */
+export function formedTarget(target: Node, u: PhysicsUniforms) {
+  const c = cos(u.formedAngle), s = sin(u.formedAngle);
+  return vec3(target.x.mul(c).sub(target.y.mul(s)), target.x.mul(s).add(target.y.mul(c)), target.z);
 }

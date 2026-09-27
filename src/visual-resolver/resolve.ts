@@ -1,6 +1,7 @@
 import type { InformationAction } from "../visual-actions/controller";
 import { HOLD_SECONDS, type ImageIntent, type MorphTarget, type SymbolName } from "../visual-actions/types";
 import { allowedImageURL } from "../visual-actions/validate";
+import { visualForms, type VisualFormRegistry } from "../visual-forms";
 import { fetchImage, HOSTS, timeoutSignal, type Fetcher } from "./net";
 import { createTargetPoints } from "./points";
 import { resolveImage, type ImagePipeline } from "./providers/images";
@@ -22,6 +23,8 @@ export interface ResolverDeps {
   decodeImage: (blob: Blob) => Promise<Raster>;
   /** Constructed visuals, drawn locally (browser: canvas; emoji from the system emoji font). */
   glyphs: { text: (value: string) => Raster; symbol: (name: SymbolName) => Raster; emoji: (value: string) => Raster };
+  /** Visual forms (SCF's own visual language), drawn procedurally. Default: every registered pack. */
+  forms?: VisualFormRegistry;
   request?: Fetcher;
   now?: () => Date;
   /** Upper bound for one resolution, whatever the provider chain does. */
@@ -32,15 +35,19 @@ export const resolverDefaults = { deadlineMs: 20_000 };
 
 /** The failure family of an action: what the model hears when nothing could be shown. */
 const family = (action: InformationAction) =>
-  action.type === "portrait" ? "portrait" : action.type === "terrain" ? "terrain" : action.type === "image" ? "image" : "visual";
+  action.type === "portrait" ? "portrait" : action.type === "terrain" ? "terrain" : action.type === "image" ? "image"
+    : action.type === "form" ? "form" : "visual";
+
+/** How a constructed target should form and move, when it says (visual forms); otherwise the defaults. */
+type Presentation = Pick<MorphTarget, "transition" | "motion">;
 
 /**
  * The unified Visual Resolver:
  *
  *   validated VisualAction ─► provider selection ─► retrieve / construct ─► normalize ─► VisualTarget
  *
- * Glyph actions (clock, number, text, symbol) and emoji are constructed locally on a canvas, with no
- * provider chain and no network; images first check the
+ * Glyph actions (clock, number, text, symbol) and emoji are constructed locally on a canvas, and visual
+ * forms procedurally from the form registry, with no provider chain and no network; images first check the
  * curated local assets, then (portraits too) walk the image provider chain; terrain walks the terrain
  * provider chain. Every result is checked by the
  * particle sampler before it is handed on, so an unusable target never reaches the render loop.
@@ -58,23 +65,24 @@ export class VisualResolver {
     const trace: ResolveTrace = {
       action: action.type, status: "resolving", chain: [], fetchMs: 0,
       query: action.type === "image" ? action.query : action.type === "terrain" ? action.region : action.type === "portrait" ? action.person ?? action.imageUrl
-        : action.type === "emoji" ? action.value : undefined,
-      intent: action.type === "image" ? action.intent ?? "general" : action.type === "terrain" ? action.style ?? "terrain" : undefined,
+        : action.type === "emoji" ? action.value : action.type === "form" ? action.form : undefined,
+      intent: action.type === "image" ? action.intent ?? "general" : action.type === "terrain" ? action.style ?? "terrain"
+        : action.type === "form" ? action.variant : undefined,
     };
     this.lastTrace = trace;
     const timeout = timeoutSignal(this.deps.deadlineMs ?? resolverDefaults.deadlineMs);
     const deadline = timeout.signal;
     const bounded = AbortSignal.any([signal, deadline]);
     try {
-      const { visual, label } = await this.construct(action, bounded, trace);
+      const { visual, label, transition, motion } = await this.construct(action, bounded, trace);
       createTargetPoints(visual, 1); // Reject unusable targets before they reach the render loop.
       describe(trace, visual);
       trace.status = "resolved";
-      return { visual, label, hold: HOLD_SECONDS[action.type] };
+      return { visual, label, hold: HOLD_SECONDS[action.type], ...(transition ? { transition } : {}), ...(motion ? { motion } : {}) };
     } catch (error) {
       if (signal.aborted) { trace.status = "cancelled"; throw error; }
       const failure = deadline.aborted ? `${family(action)}-unavailable`
-        : error instanceof ResolveError && /^(portrait|image|terrain|region)-(not-found|unavailable)$/.test(error.message) ? error.message
+        : error instanceof ResolveError && /^(portrait|image|terrain|region|form)-(not-found|unavailable)$/.test(error.message) ? error.message
           : `${family(action)}-unavailable`;
       trace.status = "failed";
       trace.error = error instanceof Error && error.message !== failure ? `${failure} (${error.message.slice(0, 40)})` : failure;
@@ -99,7 +107,7 @@ export class VisualResolver {
     return { visual, label, hold: as === "heightmap" ? HOLD_SECONDS.terrain : HOLD_SECONDS.image };
   }
 
-  private async construct(action: InformationAction, signal: AbortSignal, trace: ResolveTrace): Promise<{ visual: VisualTarget; label: string }> {
+  private async construct(action: InformationAction, signal: AbortSignal, trace: ResolveTrace): Promise<{ visual: VisualTarget; label: string } & Presentation> {
     const glyph = (raster: Raster, label: string) => {
       trace.provider = "canvas"; trace.sourceType = "constructed glyph";
       return { visual: { kind: "raster2d", style: "glyph", raster } as VisualTarget, label };
@@ -115,6 +123,19 @@ export class VisualResolver {
         trace.chain.push({ provider: "canvas", outcome: "constructed (system emoji font, no network)", ms: Date.now() - started });
         trace.provider = "canvas"; trace.sourceType = "constructed emoji";
         return { visual: { kind: "raster2d", style: "emoji", raster }, label: action.value };
+      }
+      case "form": {
+        const forms = this.deps.forms ?? visualForms;
+        const started = Date.now();
+        const form = forms.render(action.form, action.variant);
+        trace.chain.push({ provider: "visual-forms", outcome: `constructed (${form.entry.renderer}, no network)`, ms: Date.now() - started });
+        trace.provider = "visual-forms";
+        trace.source = form.variant ? `${form.entry.id} · ${form.variant}` : form.entry.id;
+        trace.sourceType = `procedural ${form.entry.category} · ${form.entry.renderer}`;
+        return {
+          visual: form.visual, label: forms.label(form.entry.id, form.variant),
+          ...(form.transition ? { transition: form.transition } : {}), ...(form.spin ? { motion: { spin: form.spin } } : {}),
+        };
       }
       case "portrait": {
         if (action.imageUrl) {
@@ -176,6 +197,7 @@ export class VisualResolver {
 function describe(trace: ResolveTrace, visual: VisualTarget) {
   trace.targetType = visual.kind;
   if (visual.kind === "raster2d") { trace.targetStyle = visual.style; trace.raster = { width: visual.raster.width, height: visual.raster.height }; }
+  if (visual.kind === "points") { trace.targetStyle = visual.style; trace.layout = { points: visual.layout.points.length, strokes: visual.layout.strokes.length }; }
   if (visual.kind === "heightfield") {
     const { min, max } = heightRange(visual.field);
     trace.field = { width: visual.field.width, height: visual.field.height, min, max, elevation: visual.field.elevation };

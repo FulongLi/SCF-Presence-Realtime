@@ -3,7 +3,7 @@ import { Color } from "three";
 import { MeshBasicNodeMaterial } from "three/webgpu";
 import { float, mix, normalize, positionLocal, sin, smoothstep, uniform, uv, vec3 } from "three/tsl";
 import type { PhysicsUniforms } from "../physics/uniforms";
-import { morphWeight } from "../physics/morph";
+import { formedTarget, morphWeight } from "../physics/morph";
 import { formationNodes, formationShape } from "../formation";
 type VectorNode = Node;
 
@@ -26,7 +26,7 @@ export function createMaterial(rest: VectorNode, offset: VectorNode, target: Vec
   const disturbance = offset.length().mul(0.28).clamp(0, 0.22);
   // Stable size variation keeps individual grains legible without frame-to-frame flicker.
   const grainSize = sin(rest.dot(vec3(127.1, 311.7, 74.7))).mul(0.3).add(1);
-  const base = mix(rest, target, m);
+  const base = mix(rest, formedTarget(target, u), m);
   const depthSway = sin(u.clock.mul(0.5)).mul(0.07).mul(m);
   const relief = vec3(base.x.add(base.z.mul(depthSway)), base.y, base.z);
   const grain = positionLocal.mul(u.size).mul(grainSize).mul(float(1).sub(m.mul(0.24)));

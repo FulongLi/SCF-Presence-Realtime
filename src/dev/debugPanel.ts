@@ -9,6 +9,8 @@ import { VOICE_BACKEND_LABELS, VOICE_BACKENDS, type VoiceBackend } from "@/voice
 import { LOCAL_ASSETS } from "@/visual-resolver";
 import { IMAGE_INTENTS, SYMBOL_NAMES, TERRAIN_STYLES } from "@/visual-actions/types";
 import { validateVisualAction } from "@/visual-actions/validate";
+import { visualForms } from "@/visual-forms";
+import { FORM_SAMPLES } from "./formSamples";
 
 /**
  * Development diagnostics, loaded only for `?debug=1` in development builds (or with
@@ -111,6 +113,27 @@ export function attachDebugPanel(container: HTMLElement, { controller, runtime }
   const terrainStyle = el("select", "", terrainRow);
   for (const name of TERRAIN_STYLES) { const option = el("option", name, terrainStyle); option.value = name; }
   button("show_terrain", terrainRow, () => runTool("show_terrain", { region: region.value.trim(), style: terrainStyle.value }));
+
+  // Visual forms: SCF's own visual language, drawn procedurally (no OpenAI, no network, no image search).
+  const forms = section("visual forms", true);
+  for (const group of ["Tao", "Astronomy", "Astrology"] as const) {
+    const row = el("div", "", forms);
+    el("span", `${group} `, row);
+    for (const sample of FORM_SAMPLES.filter(item => item.group === group)) button(sample.label, row, () => runTool("show_form", sample.args));
+  }
+  const formRow = el("div", "", forms);
+  const formPick = el("select", "", formRow);
+  for (const form of visualForms.forms()) { const option = el("option", `${form.id} · ${form.label}`, formPick); option.value = form.id; }
+  button("show", formRow, () => runTool("show_form", { form: formPick.value }));
+  const freeRow = el("div", "", forms);
+  const formName = el("input", "", freeRow);
+  // Any id or name, sent as typed: aliases ("yin yang", "猎户座", "Leo zodiac sign") and misses (form-not-found).
+  formName.placeholder = "form id or name"; formName.value = "Leo constellation";
+  const formVariant = el("input", "", freeRow);
+  formVariant.placeholder = "variant (optional)"; formVariant.size = 12;
+  button("show_form", freeRow, () => runTool("show_form", {
+    form: formName.value.trim(), ...(formVariant.value.trim() ? { variant: formVariant.value.trim() } : {}),
+  }));
 
   const resolving = section("visual resolver", true);
   const resolverOut = el("output", "", resolving);
@@ -262,7 +285,8 @@ export function attachDebugPanel(container: HTMLElement, { controller, runtime }
       ...trace.chain.map((step, index) => `  ${index + 1}. ${step.provider}: ${step.outcome} · ${step.ms} ms`),
       trace.provider ? `provider ${trace.provider}${trace.sourceType ? ` · ${trace.sourceType}` : ""}` : "",
       trace.source ? `source ${trace.source.slice(0, 140)}` : "",
-      trace.targetType ? `target ${trace.targetType}${trace.targetStyle ? `/${trace.targetStyle}` : ""}${trace.raster ? ` · raster ${trace.raster.width}×${trace.raster.height}` : ""}` : "",
+      trace.targetType ? `target ${trace.targetType}${trace.targetStyle ? `/${trace.targetStyle}` : ""}${trace.raster ? ` · raster ${trace.raster.width}×${trace.raster.height}` : ""}`
+        + (trace.layout ? ` · layout ${trace.layout.points} points, ${trace.layout.strokes} strokes` : "") : "",
       trace.field ? `height field ${trace.field.width}×${trace.field.height} · normalized ${fixed(trace.field.min)}–${fixed(trace.field.max)}`
         + (trace.field.elevation ? ` · ${trace.field.elevation.min}–${trace.field.elevation.max} m` : "") : "",
       `fetch ${trace.fetchMs} ms · resolve ${trace.resolveMs ?? "…"} ms`,

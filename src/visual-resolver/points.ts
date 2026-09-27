@@ -1,5 +1,5 @@
 import { subjectMap } from "./transforms/crop";
-import type { HeightFieldTarget, Raster, Raster2DTarget, VisualTarget } from "./types";
+import type { HeightFieldTarget, PointLayoutTarget, Raster, Raster2DTarget, VisualTarget } from "./types";
 
 /**
  * VisualTarget → particle rest positions and tones. This is the only place the body learns a shape,
@@ -12,6 +12,7 @@ export function createTargetPoints(target: VisualTarget, count: number): TargetP
   switch (target.kind) {
     case "raster2d": return rasterPoints(target, count);
     case "heightfield": return heightFieldPoints(target, count);
+    case "points": return layoutPoints(target, count);
     default: throw new Error("invalid-target");
   }
 }
@@ -39,11 +40,13 @@ function pickCell(distribution: Float64Array, pick: number) {
  * - logo: like glyph (alpha silhouette, no vignette, thin slab), with even density, strong outline and
  *   colour-boundary edges so inner details of a mark survive, and tones from the mark's own contrast.
  * - emoji: see emojiPoints().
+ * - ink: see inkPoints().
  */
 function rasterPoints(target: Raster2DTarget, count: number): TargetPoints {
   const image = target.raster;
   validateRaster(image);
   if (target.style === "emoji") return emojiPoints(image, count);
+  if (target.style === "ink") return inkPoints(image, count);
   const { width, height, data } = image;
   const { style } = target;
   const glyph = style === "glyph", logo = style === "logo";
@@ -164,6 +167,130 @@ function emojiPoints(image: Raster, count: number): TargetPoints {
     const level = spread < 0.12 ? 0.7 : Math.max(0, Math.min(1, (lum[cell] - lumLow) / spread));
     positions.set([x, y, (next() - 0.5) * 0.12 + (level - 0.5) * 0.05], i * 3);
     tones[i] = Math.min(1, (spread < 0.12 ? 0.66 : 0.3 + 0.6 * level) + edge[cell] * 0.12 + (next() - 0.5) * 0.06);
+  }
+  return { positions, tones };
+}
+
+/**
+ * A procedural ink form (painted by visual-forms/geometry/ink.ts): alpha is how much of the body
+ * belongs there, read continuously, so a pale wash is a sparse veil of particles and a full stroke is dense;
+ * RGB is the tone. Boundaries between different densities (the S-curve of a yin-yang, the edge of a brush
+ * stroke) get extra weight so shapes stay crisp even where one side is sparse. A thin, calm slab in which
+ * brighter ink sits very slightly forward.
+ */
+function inkPoints(image: Raster, count: number): TargetPoints {
+  const { width, height, data } = image;
+  const length = width * height;
+  const density = new Float32Array(length), edge = new Float32Array(length), distribution = new Float64Array(length);
+  for (let i = 0; i < length; i++) density[i] = data[i * 4 + 3] / 255;
+  let total = 0;
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    const i = y * width + x, d = density[i];
+    if (d > 0.01) {
+      const around = [x > 0 ? density[i - 1] : 0, x < width - 1 ? density[i + 1] : 0, y > 0 ? density[i - width] : 0, y < height - 1 ? density[i + width] : 0];
+      edge[i] = Math.min(1, Math.max(...around.map(value => Math.abs(d - value))) * 1.6);
+      total += Math.pow(d, 1.15) + edge[i] * d * 1.2;
+    }
+    distribution[i] = total;
+  }
+  if (total < 0.01) throw new Error("empty-raster");
+  const positions = new Float32Array(count * 3), tones = new Float32Array(count);
+  const aspect = width / height;
+  const h = Math.min(2.9, 3.3 / aspect), w = h * aspect;
+  const next = random(0x1a4c);
+  for (let i = 0; i < count; i++) {
+    const cell = pickCell(distribution, next() * total);
+    const x = ((cell % width + next()) / width - 0.5) * w;
+    const y = (0.5 - (Math.floor(cell / width) + next()) / height) * h;
+    const light = data[cell * 4] / 255;
+    positions.set([x, y, (next() - 0.5) * 0.1 + (light - 0.5) * 0.06], i * 3);
+    tones[i] = Math.max(0, Math.min(1, 0.1 + light * 0.84 + edge[cell] * 0.05 + (next() - 0.5) * 0.06));
+  }
+  return { positions, tones };
+}
+
+/** How far normalized layout coordinates (-1..1) reach on the stage, and the bounds a layout must respect. */
+export const pointLayoutLimits = { scale: 1.6, points: 4096, strokes: 1024, vertices: 16384 };
+
+function validateLayout(target: PointLayoutTarget) {
+  const layout = target.layout;
+  const finite = (...values: number[]) => values.every(Number.isFinite);
+  const within = (value: number) => Math.abs(value) <= 1.05;
+  const unit = (value: number) => value >= 0 && value <= 1;
+  if (!layout || !Array.isArray(layout.points) || !Array.isArray(layout.strokes) || !(layout.dust >= 0 && layout.dust <= 0.8)
+    || layout.points.length > pointLayoutLimits.points || layout.strokes.length > pointLayoutLimits.strokes) throw new Error("invalid-layout");
+  let vertices = 0;
+  for (const p of layout.points) {
+    if (!finite(p.x, p.y, p.weight, p.radius, p.tone) || !within(p.x) || !within(p.y) || !(p.weight >= 0)
+      || !(p.radius > 0 && p.radius <= 0.5) || !unit(p.tone)) throw new Error("invalid-layout");
+  }
+  for (const s of layout.strokes) {
+    if (!Array.isArray(s.points) || s.points.length < 4 || s.points.length % 2 || !finite(...s.points, s.width, s.weight, s.tone)
+      || !s.points.every(within) || !(s.width > 0 && s.width <= 0.3) || !(s.weight >= 0) || !unit(s.tone)) throw new Error("invalid-layout");
+    vertices += s.points.length / 2;
+  }
+  if (vertices > pointLayoutLimits.vertices) throw new Error("invalid-layout");
+}
+
+/**
+ * A point layout drawn directly in particles. Each particle picks a component in proportion to its weight
+ * (a point, a stroke segment by its length, or the background dust), always from the same random sequence,
+ * so every quality tier is a prefix of the same picture.
+ * - celestial: a point is a luminous core (a 2D Gaussian over its radius) that dims outward and sits at its
+ *   own depth, so stars read as separate lights in space; strokes are fine Gaussian lines at medium light;
+ *   the dust is a wide, deep field of faint grains with a few brighter ones, like distant stars.
+ */
+function layoutPoints(target: PointLayoutTarget, count: number): TargetPoints {
+  validateLayout(target);
+  const { points, strokes, dust } = target.layout;
+  const segments: { ax: number; ay: number; bx: number; by: number; width: number; tone: number }[] = [];
+  const weights: number[] = [];
+  for (const p of points) weights.push(p.weight);
+  for (const s of strokes) {
+    for (let k = 2; k < s.points.length; k += 2) {
+      const [ax, ay, bx, by] = [s.points[k - 2], s.points[k - 1], s.points[k], s.points[k + 1]];
+      segments.push({ ax, ay, bx, by, width: s.width, tone: s.tone });
+      weights.push(s.weight * Math.hypot(bx - ax, by - ay));
+    }
+  }
+  const content = weights.reduce((sum, value) => sum + value, 0);
+  if (!(content > 1e-6)) throw new Error("empty-layout");
+  weights.push(content * dust / (1 - dust));
+  const distribution = new Float64Array(weights.length);
+  let total = 0;
+  weights.forEach((value, i) => { total += value; distribution[i] = total; });
+  const positions = new Float32Array(count * 3), tones = new Float32Array(count);
+  const next = random(0x5ca1e);
+  const gaussian = () => Math.sqrt(-2 * Math.log(1 - next())) * Math.cos(2 * Math.PI * next());
+  // Each point's own depth, fixed by its index: stars at different distances sway apart as the body breathes.
+  const depth = (index: number) => (Math.abs(Math.sin(index * 12.9898 + 4.1414) * 43758.5453) % 1 - 0.5) * 0.5;
+  const { scale } = pointLayoutLimits;
+  for (let i = 0; i < count; i++) {
+    const pick = pickCell(distribution, next() * total);
+    let x: number, y: number, z: number, tone: number;
+    if (pick < points.length) {
+      const p = points[pick];
+      const dx = gaussian() * p.radius * 0.5, dy = gaussian() * p.radius * 0.5;
+      const falloff = Math.min(1, Math.hypot(dx, dy) / p.radius);
+      x = p.x + dx; y = p.y + dy;
+      z = depth(pick) + gaussian() * p.radius * 0.25;
+      tone = p.tone * (1 - 0.5 * falloff) + (next() - 0.5) * 0.06;
+    } else if (pick < points.length + segments.length) {
+      const s = segments[pick - points.length];
+      const t = next(), length = Math.hypot(s.bx - s.ax, s.by - s.ay) || 1;
+      const offset = gaussian() * s.width * 0.5;
+      x = s.ax + (s.bx - s.ax) * t - (s.by - s.ay) / length * offset;
+      y = s.ay + (s.by - s.ay) * t + (s.bx - s.ax) / length * offset;
+      z = (next() - 0.5) * 0.05;
+      tone = s.tone * (0.82 + next() * 0.3);
+    } else {
+      const r = Math.sqrt(next()) * 1.15, angle = next() * Math.PI * 2;
+      x = Math.cos(angle) * r; y = Math.sin(angle) * r * 0.8;
+      z = (next() - 0.5) * 1.1;
+      tone = 0.03 + 0.2 * Math.pow(next(), 4);
+    }
+    positions.set([x * scale, y * scale, z], i * 3);
+    tones[i] = Math.max(0, Math.min(1, tone));
   }
   return { positions, tones };
 }

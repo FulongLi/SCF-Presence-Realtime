@@ -19,7 +19,7 @@ src/
     client.ts                     VoiceClient: the small interface PresenceController drives
     webrtc.ts                     PeerLike / ChannelLike (mockable WebRTC shapes)
     visualGuidance.ts             visual-body and visual-tool rules shared by both prompts
-    tools/definitions.ts          the nine visual function tools (two open, one emoji, six convenience): one schema
+    tools/definitions.ts          the ten visual function tools (two open, one visual-form, one emoji, six convenience): one schema
     tools/executor.ts             args → VisualAction → validate → VisualActionController (one executor)
     tools/results.ts              concise function_call_output payloads
   live/                           GPT-Live adapter (separate protocol, nothing shared with realtime/ events)
@@ -52,7 +52,7 @@ src/
   visual-actions/                 VisualAction schema, validation, VisualActionController (lifecycle)
   visual-resolver/                action → VisualTarget: providers, sources, transforms, particle sampling
     index.ts                      createBrowserResolver(): wires the providers below
-    types.ts                      Raster2DTarget | HeightFieldTarget | Future3DTargetPlaceholder, provider interfaces, trace
+    types.ts                      Raster2DTarget | HeightFieldTarget | PointLayoutTarget | Future3DTargetPlaceholder, provider interfaces, trace
     resolve.ts                    VisualResolver: dispatch, deadline, failure codes, trace
     net.ts                        the only network path: allowlists, timeouts, byte limits, MIME + magic bytes
     points.ts                     VisualTarget → particle rest positions and tones
@@ -70,7 +70,17 @@ src/
     transforms/raster.ts          browser decoding (createImageBitmap + canvas)
     transforms/svg.ts             local SVG only: safety check, sizing, <img> → canvas, logo normalization
     transforms/heightfield.ts     terrarium decode, polygon mask, smoothing, normalization (pure)
+  visual-forms/                   SCF's own visual language: procedural forms (pure, no DOM, no network)
+    index.ts                      VISUAL_FORM_PACKS and the shared registry (`visualForms`)
+    registry.ts                   VisualFormRegistry: ids, categories, aliases, terms, variants, lookup, render cache
+    types.ts                      VisualFormEntry, FormCategory, VisualFormPack, FormRendering
+    geometry/path.ts              pen paths (lines, arcs, Béziers) flattened to polylines
+    geometry/ink.ts               InkCanvas: supersampled density + tone painter → RGBA raster
+    tao/                          yin-yang, yin/yang lines, the eight trigrams, the bagua (ink)
+    celestial/astronomy/          catalogue (RA/Dec, magnitude), gnomonic chart, star-map renderer
+    celestial/astrology/          zodiac and planetary glyph paths, star-glyph renderer
   dev/debugPanel.ts               ?debug=1 diagnostics
+  dev/formSamples.ts              the ?debug=1 visual-form acceptance set (pure data, tested)
 ```
 
 public/assets/brand/              curated brand files (place spirit-connect-logo.svg here)
@@ -197,9 +207,9 @@ conversation.item.create { type: "function_call_output", call_id, output: '{"ok"
 ```
 
 - **One schema.** Tools resolve into the `VisualAction` union and go through the validator and controller. There is no second visual schema.
-- **Tools.** `show_image { query, intent? }` and `show_terrain { region, style? }` are open: any query or place goes to the Visual Resolver. `show_emoji { emoji }` shows any single Unicode emoji as a brief expressive reaction (validated as exactly one grapheme cluster with `Intl.Segmenter` plus an allowlist pattern of emoji sequences: pictographs, skin tones, VS-16, ZWJ, flags, keycaps, tag flags). `show_clock`, `show_portrait`, `show_number`, `show_text`, `show_symbol` and `return_to_sphere` remain as convenience tools. `intent` and `style` are hints: an unknown value falls back to the default rather than failing the call.
+- **Tools.** `show_image { query, intent? }` and `show_terrain { region, style? }` are open: any query or place goes to the Visual Resolver. `show_form { form, variant? }` draws a concept from SCF's own visual language (a registered visual form: Taoist symbols, constellations, zodiac and planetary glyphs); `form` is an id or a name the registry resolves, so the action always carries a canonical id (see [Visual Form Packs](#visual-form-packs)). `show_emoji { emoji }` shows any single Unicode emoji as a brief expressive reaction (validated as exactly one grapheme cluster with `Intl.Segmenter` plus an allowlist pattern of emoji sequences: pictographs, skin tones, VS-16, ZWJ, flags, keycaps, tag flags). `show_clock`, `show_portrait`, `show_number`, `show_text`, `show_symbol` and `return_to_sphere` remain as convenience tools. `intent` and `style` are hints: an unknown value falls back to the default rather than failing the call.
 - **Concurrency.** An image or terrain forms while the model keeps talking. `morphSpeechBlend()` fades destructive speaking forces early in the morph, and a small audio-reactive shimmer stays, so portraits, clocks and text remain readable during speech.
-- **Failure** (invalid arguments, unknown tool, `image-not-found`, `image-unavailable`, `portrait-not-found`, `portrait-unavailable`, `region-not-found`, `terrain-unavailable`, superseded): the body stays or returns to the sphere, the model gets `{ ok: false, status }`, and it continues without the visual.
+- **Failure** (invalid arguments, unknown tool, `image-not-found`, `image-unavailable`, `portrait-not-found`, `portrait-unavailable`, `region-not-found`, `terrain-unavailable`, `form-not-found`, `form-unavailable`, superseded): the body stays or returns to the sphere, the model gets `{ ok: false, status }`, and it continues without the visual.
 - **Silence about tools.** The instructions tell the model the visual channel is auxiliary and not to be narrated. A response that already spoke gets no follow-up, so the model has no reason to comment on the tool result.
 
 The GPT-Live flow ([`live/delegation.ts`](../src/live/delegation.ts)):
@@ -245,7 +255,7 @@ The bottleneck is no longer a list of visual types. Two open tools cover most th
 ### Targets
 
 ```ts
-type VisualTarget = Raster2DTarget | HeightFieldTarget | Future3DTargetPlaceholder;
+type VisualTarget = Raster2DTarget | HeightFieldTarget | PointLayoutTarget | Future3DTargetPlaceholder;
 ```
 
 | Target | Used for | Sampling (`visual-resolver/points.ts`) |
@@ -255,7 +265,9 @@ type VisualTarget = Raster2DTarget | HeightFieldTarget | Future3DTargetPlacehold
 | `Raster2DTarget` `style: "glyph"` | clock, number, text, symbol | alpha-weighted crisp shapes, thin slab, even tones (unchanged) |
 | `Raster2DTarget` `style: "logo"` | curated brand marks (local assets) | alpha silhouette (transparent background ignored), even density with strong outline and colour-boundary edges, no vignette, thin slab, tones from the mark's own luminance range (even light for a one-colour mark) |
 | `Raster2DTarget` `style: "emoji"` | one emoji drawn from the OS emoji font (Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji); no network, no bundled font or images | density follows alpha (nothing from transparency, no vignette or background box): an even fill plus extra weight on the silhouette and on colour/luminance boundaries inside it (1–2 px bands), so 😊 keeps its eyes and mouth; thin slab with a hint of luminance relief; tones from the emoji's own luminance range, lifted on edges. The body stays particles, never a flat sticker |
+| `Raster2DTarget` `style: "ink"` | procedural ink forms (the Tao pack) | alpha is *density*, read continuously rather than as a mask: a full stroke becomes dense particles, a pale wash a sparse veil; boundaries between densities (the yin-yang's S-curve, a brush edge) are weighted so shapes stay crisp even where one side is sparse; RGB is tone; thin calm slab, brighter ink slightly forward |
 | `HeightFieldTarget` | terrain, topography, relief, grayscale heightmaps | see below |
+| `PointLayoutTarget` `style: "celestial"` | star maps and star-drawn glyphs (the celestial pack); later graphs, molecules, lattices, plots | no raster: weighted points (Gaussian cores that dim outward, each at its own depth), polyline strokes (fine Gaussian lines, particles in proportion to weight × length) and a share of faint, deep background dust. Coordinates are normalized to [-1, 1]; bounded counts; every particle picks its component from the same random sequence, so quality tiers stay prefixes |
 | `Future3DTargetPlaceholder` | nothing yet | cannot be constructed (`reserved: never`); the sampler rejects it |
 
 Every sampler draws from a fixed-seed random sequence, so every adaptive-quality tier is a prefix of the same arrangement and shows the whole visual. The resolver samples each target once before handing it on, so an unusable target is rejected before it reaches the render loop.
@@ -327,7 +339,7 @@ Heights come from **real elevation data** (SRTM, GMTED, ETOPO1 and others, about
 
 ### Speech while a visual is formed
 
-Unchanged: `morphSpeechBlend()` fades the destructive speaking forces early in the morph, and the formed state keeps a bounded audio shimmer along the view axis. Images stay recognizable and terrain stays readable, but the body is never frozen. Every visual is temporary: sphere → visual → hold (image 12 s, portrait 14 s, terrain 14 s) → sphere.
+Unchanged: `morphSpeechBlend()` fades the destructive speaking forces early in the morph, and the formed state keeps a bounded audio shimmer along the view axis. Images stay recognizable and terrain stays readable, but the body is never frozen. Every visual is temporary: sphere → visual → hold (image 12 s, portrait 14 s, terrain 14 s, form 10 s) → sphere.
 
 ### Guardrails
 
@@ -348,7 +360,7 @@ The visual space is open, but the implementation stays bounded.
 
 ### Debugging
 
-`?debug=1` → **visual resolver** shows the last action, query or region, intent or style, every provider consulted with its outcome and latency (the fallback chain), the selected provider, source and source type (licence, elevation vs. brightness), target type, raster or height-field size, normalized height range and real elevation range, fetch latency, resolver latency and final status. **tools** has one-click acceptance tests through the real `ToolExecutor` (portrait: Nikola Tesla; image: Tesla Model Y, Taylor Swift, futuristic concept car; terrain: Wales, United Kingdom; clock, text, number, symbol; emoji: 😊 🤔 🎉 🚀 ❤️ 👨‍🚀 🇬🇧 and an invalid 😊😂; sphere), free-form `show_image` / `show_emoji` / `show_terrain` inputs, and a local file loader (as portrait, object or heightmap).
+`?debug=1` → **visual resolver** shows the last action, query or region, intent or style, every provider consulted with its outcome and latency (the fallback chain), the selected provider, source and source type (licence, elevation vs. brightness), target type, raster or height-field size, normalized height range and real elevation range, fetch latency, resolver latency and final status. **tools** has one-click acceptance tests through the real `ToolExecutor` (portrait: Nikola Tesla; image: Tesla Model Y, Taylor Swift, futuristic concept car; terrain: Wales, United Kingdom; clock, text, number, symbol; emoji: 😊 🤔 🎉 🚀 ❤️ 👨‍🚀 🇬🇧 and an invalid 😊😂; sphere), free-form `show_image` / `show_emoji` / `show_terrain` inputs, and a local file loader (as portrait, object or heightmap). **visual forms** has one-click `show_form` tests (Tao: Yin Yang, Qian, Kun, Li, Kan, Bagua and the Later Heaven bagua; Astronomy: Orion, Ursa Major, Cassiopeia, Pleiades; Astrology: Aries, Leo, Scorpio, Pisces), a picker with every registered form, and a free-form name + variant input that exercises alias resolution and `form-not-found`. The resolver trace shows `provider visual-forms`, the renderer, and the target (`raster2d/ink` or `points/celestial` with its point and stroke counts).
 
 ### Limitations
 
@@ -370,6 +382,112 @@ The seam is `VisualTarget`. True 3D would add members such as:
 - `VolumetricTarget`: density fields sampled inside a volume.
 
 Each needs one type in `visual-resolver/types.ts`, one sampler branch in `points.ts`, and a provider (a `ModelProvider` beside `ImageProvider`/`TerrainProvider`), plus probably an orientation/turntable control in the runtime. The resolver, the tools, the controller lifecycle and the speech blending stay as they are. Model loading (glTF/OBJ/STL), mesh ingestion and point clouds are deliberately **not** implemented yet.
+
+## Visual Form Packs
+
+### Visual retrieval and visual language
+
+Until now every open visual was **retrieved**: the AI names something, a provider finds a picture of it, and the picture is sampled into particles.
+
+```text
+visual retrieval:  AI ─► search an external visual ─► decode, crop ─► particle form
+visual language:   AI ─► understand the concept ─► procedural form ─► particles
+```
+
+A visual form is a concept the body already knows how to draw, built on the device from data and geometry, never from an image search: the yin-yang is a construction of discs, a trigram is three lines, Orion is a list of catalogue positions and magnitudes, ♈ is a pen path. It is instant, needs no network, looks the same everywhere, and is always the right picture. It is still temporary: sphere → form → sphere, through the same controller.
+
+### One tool, one registry
+
+```text
+show_form { form, variant? }
+   │  form = id ("tao.qian") or a name ("yin yang", "猎户座", "Leo zodiac sign", "♈")
+   ▼
+ToolExecutor ── VisualFormRegistry.lookup(name) ─► canonical id (+ variant)   unknown name → form-not-found
+   ▼
+validateVisualAction { type: "form", form: <registered id>, variant?: <declared variant> }
+   ▼
+VisualActionController ─► VisualResolver ── case "form": registry.render(id, variant)   (cached, no provider chain)
+   ▼
+VisualTarget (Raster2DTarget/ink or PointLayoutTarget/celestial) + transition + motion ─► createTargetPoints ─► body
+```
+
+- **Registry** ([`visual-forms/registry.ts`](../src/visual-forms/registry.ts)). Each entry: `id` (`<category>.<name>`), `category`, `renderer`, `label`, `aliases`, optional `terms` and `variants`, and a pure `render(variant)`. Packs are registered once; construction fails on a duplicate id, an id outside its category, an alias or term that would name two forms, or malformed variants. `SYMBOL_NAMES` is untouched: `show_symbol` keeps its small universal vocabulary (check, cross, arrows, plus, minus, heart, star, …).
+- **Lookup order**: id → alias (after normalization: accents folded, case, punctuation and possessives dropped, symbols kept) → category hints ("Leo **constellation**" → astronomy, "Leo **zodiac sign**" → astrology, "**fire** trigram" → the term `fire` within tao) → the name without filler ("the Pleiades") → a form name only one category has. Common words are *terms*, not aliases: "sign of the ram" is Aries, but `show_form("fish")` is `form-not-found`, never Pisces. A bare "Leo" is the sign; "Scorpio" is the sign and "Scorpius" the constellation.
+- **Variants** are hints like an image intent: an unknown one falls back to the default. A name can select one ("后天八卦" → bagua, Later Heaven).
+- **Tool description** is generated from the registry (every id, grouped by category, and every variant set), so a new pack appears in both backends' tool lists with no edit to `definitions.ts`. The shared prompt rules ([`voice/visualGuidance.ts`](../src/voice/visualGuidance.ts)) tell both Realtime and GPT-Live's backend to use `show_form`, never `show_image`, for these concepts, and how to tell a sign from a constellation.
+- **Result**: `{ ok: true, status: "displayed", shown: "Leo (constellation)" }`: the label tells the model what a name resolved to. Failures: `form-not-found` (the body is not touched), `form-unavailable`.
+- **Presentation** comes from the pack, through fields `MorphTarget` already had or now has: a category's `transition` (Tao forms gather in 2.2 s and return in 1.7 s; celestial 2.0/1.6) and a form's `spin` (`MorphTarget.motion.spin`, radians per second about the view axis). Hold: 10 s.
+
+### Initial hierarchy
+
+```text
+visual forms
+├── basic                 the universal marks of show_symbol (check, cross, arrows, …), unchanged
+├── tao                   renderer "ink" → Raster2DTarget/ink
+│   ├── yin-yang          tao.yin-yang (turns slowly, clockwise)
+│   ├── lines             tao.yin-line, tao.yang-line
+│   ├── trigrams          tao.qian, dui, li, zhen, xun, kan, gen, kun
+│   └── bagua             tao.bagua (earlier-heaven | later-heaven)
+│
+└── celestial
+    ├── astronomy         renderer "star-map" → PointLayoutTarget/celestial
+    │   └── constellations  orion, ursa-major, cassiopeia, scorpius, leo, cygnus, pleiades (lines | stars)
+    │
+    └── astrology         renderer "star-glyph" → PointLayoutTarget/celestial
+        ├── zodiac        aries … pisces (all twelve)
+        └── planets       sun, moon, mercury, venus, mars, jupiter, saturn
+```
+
+### Tao pack
+
+Painted with [`InkCanvas`](../src/visual-forms/geometry/ink.ts), a pure supersampled painter (3×3 samples per pixel, area-averaged) with two channels: **density** (how much of the body belongs there) and **tone**. It runs identically in Node and the browser, so tests read the drawings back pixel by pixel. The language is an ink painting translated into light: yang is a full, bright stroke (dense particles), yin a pale wash with dry-brush texture (sparse, dim), and empty space stays empty.
+
+- **Yin-yang**: the classical construction (yang = left half-disc + upper small disc − lower small disc), which gives the S-division; a dot of each in the other's head; a fine rim so the silhouette stays whole on the sparse yin side. Centred, balanced, and a true 180° point reflection (tested). It turns slowly clockwise while held, the way the bright fish swims.
+- **Trigrams**: data in [`tao/trigrams.ts`](../src/visual-forms/tao/trigrams.ts), lines bottom to top, 1 = yang (one bar), 0 = yin (two bars). The table matches the Unicode block ☰…☷ bit for bit (tested), and each rendered trigram is read back from its pixels.
+- **Bagua**: the eight trigrams around a small yin-yang, south at the top as on classical diagrams, bottom lines toward the centre, lines lengthening outward. `earlier-heaven` (先天, Fu Xi; each trigram faces its complement) or `later-heaven` (后天, King Wen). Turns more slowly than the yin-yang. Individual trigrams never turn: their orientation is their meaning.
+
+### Celestial pack
+
+Astronomy and astrology are separate categories with a shared look: sparse, deep, faint dust; no HUD, no fantasy art.
+
+- **Constellations** ([`celestial/astronomy/`](../src/visual-forms/celestial/astronomy/)): data is real equatorial coordinates, `star(id, name, "05 55 10.31", "+07 24 25.4", 0.5)` (J2000 RA/Dec, visual magnitude), stick-figure lines as pairs of star ids, and optional haze (M42, the Pleiades' nebulosity). The data never holds screen positions:
+
+  ```text
+  catalogue (RA/Dec, mag) ─► gnomonic projection about the figure's centre, north up, east LEFT (as seen from the ground)
+                          ─► centred, longest side ±0.86 ─► stars (prominence from magnitude), lines, haze ─► PointLayoutTarget
+  ```
+
+  Prominence is linear in magnitude within each figure (real flux ratios are far too extreme for particles), so Rigel is a large, dense, bright core and χ² Ori a small point. Lines are fine and dim and stop short of their stars, as on a printed chart, and take a fixed share of the figure whatever their length; `variant: "stars"` hides them. Stars that would merge with a brighter neighbour at this scale are left out. A full catalogue (Hipparcos, Yale Bright Star) can replace the hand-entered lists without touching the renderer; placing a figure on the live sky needs an ephemeris (date, time, observer), which is deliberately **not** implemented.
+- **Zodiac and planets** ([`celestial/astrology/`](../src/visual-forms/celestial/astrology/)): each glyph is a pen path of lines, arcs and Béziers drawn from the traditional letterform (no symbol font), normalized to the frame and drawn as fine lines of star dust, with a small star at every open stroke end (the glyph is drawn between stars) and faint dust behind. No natal charts or positions.
+
+### Adding a pack
+
+A pack is data plus a renderer, registered in [`visual-forms/index.ts`](../src/visual-forms/index.ts):
+
+```ts
+export const mathPack: VisualFormPack = {
+  id: "math",
+  categories: [{ id: "math", family: "math", label: "Mathematics", hints: ["graph", "curve"], transition: { form: 1.8 } }],
+  forms: [{
+    id: "math.golden-spiral", category: "math", renderer: "curve", label: "Golden spiral",
+    aliases: ["golden spiral", "fibonacci spiral", "黄金螺旋"],
+    render: () => ({ visual: renderCurve(goldenSpiral()) }),   // → PointLayoutTarget or Raster2DTarget/ink
+  }],
+};
+export const VISUAL_FORM_PACKS = [taoPack, celestialPack, mathPack];
+```
+
+Nothing else changes: the tool description, validation, executor, resolver, debug picker and the "every form renders" test pick it up. The registry is meant for math (curves, polyhedra, fractals), physics (orbits, fields, waves), chemistry (molecules: atoms as points, bonds as strokes), biology, music, engineering, mythology and more. The two target shapes cover most of them: filled forms paint with `InkCanvas`, and point-and-line structures build a `PointLayout`. A pack that needs a new look adds one sampling style (one branch in `points.ts`), never code in the particle runtime.
+
+### What changed in the body
+
+One small, generic addition: `MorphTarget.motion.spin`. The runtime accumulates an angle (reset for each new target, slowed under reduced motion) and the compute pass and material both turn the formed target about the view axis with the same `formedTarget()` expression ([`particle/physics/morph.ts`](../src/particle/physics/morph.ts)). A target without spin has angle 0, so every existing visual (and the promo film) is unchanged. Nothing in the runtime knows about forms, Tao or stars.
+
+### Limitations
+
+- Forms are hand-authored: constellation lists are transcribed from standard catalogues (approximate to arcseconds, far finer than the body can show), stick figures follow common conventions (they vary between atlases), and glyph proportions are drawn, not taken from a type designer's font.
+- No live sky: constellations are shown in their own frame, not where they are tonight. No natal charts or planetary positions.
+- The yin-yang's orientation and spin direction follow one common convention; the bagua shows south at the top, as classical diagrams do.
 
 ## Interruption / barge-in
 

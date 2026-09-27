@@ -1,7 +1,8 @@
 import type { SubmitOutcome } from "../../visual-actions/controller";
 import { clockText } from "../../visual-resolver/providers/glyphs";
 import { IMAGE_INTENTS, TERRAIN_STYLES, type VisualAction } from "../../visual-actions/types";
-import { validateVisualAction } from "../../visual-actions/validate";
+import { CONTROL, validateVisualAction } from "../../visual-actions/validate";
+import { FORM_NAME_MAX, visualForms, type VisualFormRegistry } from "../../visual-forms";
 import { isVisualToolName, type VisualToolName } from "./definitions";
 import { displayed, failed, failureStatus, type ToolResult } from "./results";
 
@@ -55,9 +56,28 @@ export function normalizeClockTime(value: string): string | null {
   return `${pad(hours)}:${pad(minutes)}`;
 }
 
+/** A form argument worth looking up: a short, plain name or id (never markup, a URL or control text). */
+const formName = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0
+  && Array.from(value.trim()).length <= FORM_NAME_MAX && !CONTROL.test(value) && !/[<>{}\\]|\/\/|:\/\//.test(value);
+
+/**
+ * show_form arguments → a canonical form action. The name may be an id or an alias ("yin yang", "猎户座",
+ * "Leo zodiac sign"); the registry resolves it. `variant` is a hint like an image intent: an unknown value
+ * falls back to the default (or to a variant the name itself selected, e.g. "后天八卦").
+ */
+export function resolveFormArguments(args: Record<string, unknown>, registry: VisualFormRegistry = visualForms) {
+  if (!onlyKeys(args, ["form", "variant"]) || !formName(args.form)) return { status: "invalid" as const };
+  if (args.variant !== undefined && args.variant !== null && typeof args.variant !== "string") return { status: "invalid" as const };
+  const match = registry.lookup(args.form);
+  if (!match) return { status: "not-found" as const };
+  const variant = registry.variant(match.entry, args.variant) ?? match.variant;
+  return { status: "found" as const, candidate: { type: "form", form: match.entry.id, ...(variant ? { variant } : {}) } };
+}
+
 /**
  * Maps a native tool call onto the one Visual Action schema shared by every path to the body.
- * The result still goes through validateVisualAction(); this only renames fields.
+ * The result still goes through validateVisualAction(); this only renames fields (and, for show_form,
+ * resolves a form's name to its id).
  */
 export function toolCallToVisualAction(name: VisualToolName, args: Record<string, unknown>): VisualAction | null {
   const text = (key: string) => typeof args[key] === "string" ? (args[key] as string).trim() : undefined;
@@ -103,6 +123,12 @@ export function toolCallToVisualAction(name: VisualToolName, args: Record<string
       if (!onlyKeys(args, ["emoji"])) return null;
       candidate = { type: "emoji", value: text("emoji") ?? args.emoji };
       break;
+    case "show_form": {
+      const resolved = resolveFormArguments(args);
+      if (resolved.status !== "found") return null;
+      candidate = resolved.candidate;
+      break;
+    }
     case "return_to_sphere":
       if (!onlyKeys(args, [])) return null;
       candidate = { type: "sphere" };
@@ -146,7 +172,11 @@ export class ToolExecutor {
     if (!isVisualToolName(name)) return done(null, failed("unknown-tool"));
     const args = parseToolArguments(rawArguments);
     const action = args ? toolCallToVisualAction(name, args) : null;
-    if (!action) return done(null, failed("invalid-arguments"));
+    if (!action) {
+      // A well-formed name that is simply not a form: tell the model, so it can say so or pick another tool.
+      const unknownForm = name === "show_form" && args !== null && resolveFormArguments(args).status === "not-found";
+      return done(null, failed(unknownForm ? "form-not-found" : "invalid-arguments"));
+    }
 
     let timer: ReturnType<typeof setTimeout> | undefined;
     const late = new Promise<"late">(resolve => { timer = setTimeout(() => resolve("late"), this.options.budgetMs); });
@@ -170,6 +200,8 @@ export class ToolExecutor {
         if (action.type === "clock") {
           return done(action, displayed({ shown: clockText(action, this.options.now()), timeZone: this.options.timeZone() }));
         }
+        // Which form a name found (e.g. "Leo ♌ (zodiac sign)"), so the model can speak about the right thing.
+        if (action.type === "form") return done(action, displayed({ shown: visualForms.label(action.form, action.variant) }));
         return done(action, displayed());
     }
   }

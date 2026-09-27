@@ -5,8 +5,9 @@ import type { VisualTarget } from "../visual-resolver/types";
  * The sphere is the identity; every action returns to it.
  *
  * `image` and `terrain` are open: the query or region is free text that the Visual Resolver turns into
- * a target. `emoji` is any single Unicode emoji, drawn locally from the system emoji font. The other
- * types are convenience shapes with a fixed vocabulary.
+ * a target. `emoji` is any single Unicode emoji, drawn locally from the system emoji font. `form` is a
+ * concept from SCF's own visual language (a registered visual form, e.g. "tao.yin-yang" or
+ * "astronomy.orion"), drawn procedurally. The other types are convenience shapes with a fixed vocabulary.
  */
 export type VisualAction =
   | { type: "sphere" }
@@ -15,6 +16,8 @@ export type VisualAction =
   | { type: "text"; value: string }
   | { type: "symbol"; value: SymbolName }
   | { type: "emoji"; value: string }
+  /** `form` is always a registered form id (see visual-forms); names and aliases are resolved before validation. */
+  | { type: "form"; form: string; variant?: string }
   | { type: "portrait"; person?: string; imageUrl?: string }
   | { type: "image"; query: string; intent?: ImageIntent }
   | { type: "terrain"; region: string; style?: TerrainStyle };
@@ -40,7 +43,7 @@ export type TerrainStyle = typeof TERRAIN_STYLES[number];
  * is a brief expression, like a gesture, so it holds for less time than information does.
  */
 export const HOLD_SECONDS: Record<Exclude<VisualActionType, "sphere">, number> = {
-  clock: 7, number: 7, text: 6, symbol: 5, emoji: 4, portrait: 14, image: 12, terrain: 14,
+  clock: 7, number: 7, text: 6, symbol: 5, emoji: 4, form: 10, portrait: 14, image: 12, terrain: 14,
 };
 
 /** A particle arrangement ready for the runtime: any visual target plus how long to hold it. */
@@ -54,6 +57,11 @@ export interface MorphTarget {
    * sets them; a director may, e.g. to let a brand mark form more deliberately than a clock.
    */
   transition?: { form?: number; return?: number };
+  /**
+   * Optional movement of the formed visual. `spin`: radians per second it turns about the view axis while
+   * formed (anticlockwise positive; default 0), e.g. a slowly turning yin-yang. Starts upright each time.
+   */
+  motion?: { spin?: number };
 }
 
 export type { Raster } from "../visual-resolver/types";
