@@ -238,7 +238,8 @@ function validateLayout(target: PointLayoutTarget) {
  * so every quality tier is a prefix of the same picture.
  * - celestial: a point is a luminous core (a 2D Gaussian over its radius) that dims outward and sits at its
  *   own depth, so stars read as separate lights in space; strokes are fine Gaussian lines at medium light;
- *   the dust is a wide, deep field of faint grains with a few brighter ones, like distant stars.
+ *   the dust is a deep field of faint grains behind the figure, fading out from the centre with no edge,
+ *   with a few slightly brighter ones, like distant stars.
  */
 function layoutPoints(target: PointLayoutTarget, count: number): TargetPoints {
   validateLayout(target);
@@ -284,10 +285,11 @@ function layoutPoints(target: PointLayoutTarget, count: number): TargetPoints {
       z = (next() - 0.5) * 0.05;
       tone = s.tone * (0.82 + next() * 0.3);
     } else {
-      const r = Math.sqrt(next()) * 1.15, angle = next() * Math.PI * 2;
+      // Behind the figure, thinning out with no edge: tones are linear light, so these stay near black.
+      const r = Math.min(1.25, Math.abs(gaussian()) * 0.55), angle = next() * Math.PI * 2;
       x = Math.cos(angle) * r; y = Math.sin(angle) * r * 0.8;
-      z = (next() - 0.5) * 1.1;
-      tone = 0.03 + 0.2 * Math.pow(next(), 4);
+      z = -0.2 - next() * 0.9;
+      tone = 0.006 + 0.07 * Math.pow(next(), 6);
     }
     positions.set([x * scale, y * scale, z], i * 3);
     tones[i] = Math.max(0, Math.min(1, tone));

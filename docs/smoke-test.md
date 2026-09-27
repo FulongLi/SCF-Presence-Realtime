@@ -108,11 +108,24 @@ Put the real logo at `public/assets/brand/spirit-connect-logo.svg` first.
 | *"Show our company logo."* | The same local logo. |
 | Temporarily rename the file, then ask again | `image-unavailable`, trace `local-assets: unavailable (http-404); no external fallback`; no other logo is shown. |
 
+## 8. Visual Form Packs (both backends)
+
+| Say / do | Expected |
+| --- | --- |
+| Debug → **visual forms** → each Tao, Astronomy and Astrology button | Without OpenAI. Trace: `1. visual-forms: constructed (ink \| star-map \| star-glyph, no network)`, `provider visual-forms`, `target raster2d/ink` or `points/celestial · layout N points, M strokes`, fetch 0 ms. Each form gathers from the sphere, holds about 10 s and returns. |
+| *"Show me yin yang."* | `show_form` (not `show_image`), result `shown: "Yin-yang ☯ (太极)"`. A bright left fish and a sparse, dim right one with an S between them, a dot in each head, a fine rim; it turns slowly clockwise. |
+| *"Show me the Eight Trigrams."* / *"Show me the later heaven bagua."* | `tao.bagua`: Qian ☰ at the top, Kun ☷ at the bottom (Later Heaven: Li ☲ at the top, Kan ☵ at the bottom), a small yin-yang in the middle, turning very slowly. |
+| *"Show me Qian."* / *"Show me 坎."* | Three whole lines / broken, whole, broken; upright and still. |
+| *"Show me Orion."* / *"Show me the Pleiades."* | Star maps: Betelgeuse upper left, Rigel lower right, the belt, faint figure lines; the Pleiades as a small cluster with no lines and a faint glow. |
+| *"Show me the Aries zodiac sign."* / *"I'm a Leo, show me my sign."* / *"Show me the Leo constellation."* | ♈ and ♌ drawn in star dust with small stars at the stroke ends; the constellation request shows the star map instead (`astronomy.leo`). |
+| Debug → free-form `show_form` with `Andromeda Galaxy` | `form-not-found`; the body is not touched. |
+
 ## Isolating body problems from model problems
 
 The debug panel can drive the body without OpenAI:
 
 - **tools**: runs the same `ToolExecutor` the Realtime and GPT-Live function calls use (the manual acceptance set including the local Spirit Connect logo, plus free-form `show_image`/`show_terrain`).
+- **visual forms**: the same executor with `show_form`: representative Tao, Astronomy and Astrology buttons, every registered form in a picker, and a free-form name + variant.
 - **visual resolver**: the provider fallback chain, sources, target sizes, height ranges and latencies of the last visual.
 - **visual actions (direct)**: submits Visual Actions straight to the controller (clock, 15:42, 42%, Hello, a symbol, a portrait or a local photo).
 - **presence**: forces idle, listening, thinking or speaking, sends a focus impulse, or plays synthetic speech through the real speaking pipeline.
