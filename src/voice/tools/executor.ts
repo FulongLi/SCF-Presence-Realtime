@@ -1,3 +1,4 @@
+import { bodyLabel, resolveBodyForm, type AionBodyId } from "../../aion/body";
 import type { SubmitOutcome } from "../../visual-actions/controller";
 import { clockText } from "../../visual-resolver/providers/glyphs";
 import { IMAGE_INTENTS, TERRAIN_STYLES, type VisualAction } from "../../visual-actions/types";
@@ -10,6 +11,12 @@ import { displayed, failed, failureStatus, type ToolResult } from "./results";
 export interface VisualBody {
   submit(action: VisualAction): Promise<SubmitOutcome>;
   readonly lastFailure: string | null;
+}
+
+/** Aion's persistent body, as set_body_form drives it (see aion/body.ts). */
+export interface BodyControl {
+  /** Changes the persistent body; false when it already is that body. */
+  setBody(form: AionBodyId): boolean;
 }
 
 export interface ToolExecution {
@@ -133,6 +140,9 @@ export function toolCallToVisualAction(name: VisualToolName, args: Record<string
       if (!onlyKeys(args, [])) return null;
       candidate = { type: "sphere" };
       break;
+    case "set_body_form":
+      // Not a temporary visual: the persistent body is changed by the executor's BodyControl.
+      return null;
   }
   return validateVisualAction(candidate);
 }
@@ -151,6 +161,11 @@ export const executorDefaults = {
   budgetMs: 1500,
 };
 
+/** set_body_form arguments → a persistent body id (an id, or a plain name such as "human" or "人形"), or null. */
+export function bodyFormArgument(args: Record<string, unknown>): AionBodyId | null {
+  return onlyKeys(args, ["form"]) ? resolveBodyForm(args.form) : null;
+}
+
 /**
  * Executes native visual tool calls locally. Voice never waits on this: the model keeps speaking while
  * the body forms; the result only tells the model what happened.
@@ -163,6 +178,8 @@ export class ToolExecutor {
       now: () => new Date(),
       timeZone: () => Intl.DateTimeFormat().resolvedOptions().timeZone,
     },
+    /** Aion's persistent body; without one, set_body_form reports that it could not be done. */
+    private readonly body: BodyControl | null = null,
   ) {}
 
   async execute(name: string, rawArguments: string): Promise<ToolExecution> {
@@ -171,6 +188,13 @@ export class ToolExecutor {
       ({ name, action, result, ms: Date.now() - started });
     if (!isVisualToolName(name)) return done(null, failed("unknown-tool"));
     const args = parseToolArguments(rawArguments);
+    if (name === "set_body_form") {
+      const form = args ? bodyFormArgument(args) : null;
+      if (!form) return done(null, failed("invalid-arguments"));
+      if (!this.body) return done(null, failed("unresolved"));
+      const changed = this.body.setBody(form);
+      return done(null, { ok: true, status: changed ? "body-changed" : "unchanged", shown: bodyLabel(form) });
+    }
     const action = args ? toolCallToVisualAction(name, args) : null;
     if (!action) {
       // A well-formed name that is simply not a form: tell the model, so it can say so or pick another tool.

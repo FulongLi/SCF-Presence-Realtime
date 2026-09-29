@@ -80,6 +80,7 @@ export class LiveClient implements VoiceClient {
   private generation = 0;
   private attempts = 0;
   private connectStartedAt = 0;
+  private spoken = 0;
   private abort?: AbortController;
   private retryTimer?: unknown;
   private graceTimer?: unknown;
@@ -132,6 +133,15 @@ export class LiveClient implements VoiceClient {
     }
     this.teardown();
     this.dispatch({ type: "connection", state: final });
+  }
+
+  /**
+   * Has the voice say a short line in its own words (Aion's first greeting), as session commentary.
+   * Not while the conversation is busy, so it never talks over the user.
+   */
+  speak(line: string): boolean {
+    if (this.state.connection !== "connected" || this.busy()) return false;
+    return this.send({ type: "session.commentary.append", event_id: `scf_speak_${++this.spoken}`, content: line, delegation_id: null });
   }
 
   send(event: LiveClientEvent): boolean {

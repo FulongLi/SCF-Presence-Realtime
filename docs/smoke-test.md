@@ -120,6 +120,18 @@ Put the real logo at `public/assets/brand/spirit-connect-logo.svg` first.
 | *"Show me the Aries zodiac sign."* / *"I'm a Leo, show me my sign."* / *"Show me the Leo constellation."* | ♈ and ♌ drawn in star dust with small stars at the stroke ends; the constellation request shows the star map instead (`astronomy.leo`). |
 | Debug → free-form `show_form` with `Andromeda Galaxy` | `form-not-found`; the body is not touched. |
 
+## 9. Aion: identity, greeting, body (both backends)
+
+1. Fresh load, allow the microphone, stay quiet. Once connected, Aion greets once ("Hi, I'm Aion. You can just talk to me naturally…") and, in the figure body, raises a hand briefly. Debug → Aion shows `greeting sent`. No second greeting after **reconnect** or a backend switch.
+2. Reload and start talking as soon as it connects: no scripted greeting (`greeting suppressed`).
+3. "Who are you?" → Aion, an interactive AI presence created by Spirit Connect. "Who created you?" → Spirit Connect, led by Fulong. "What is Intelligent Presence?" → the system that gives it a voice and visual body.
+4. "你是谁？" → a natural Chinese answer with the same names. Switch back to English: it follows.
+5. "I don't know what to do" / "你能做什么？" → one or two sentences with a few real examples, no feature list.
+6. "Take a human form" → the sphere re-forms as the Particle Figure over about 2 s. Talk: listening (slight lean and tilt), a nod when you stop, stillness while thinking, a slight hand lift while speaking. Nothing waves continuously.
+7. "Show me Orion" in the figure → the figure dissolves into Orion, holds, and re-forms as the figure (not the sphere).
+8. "Go back to the sphere" / "回到球体" → the sphere returns.
+9. Without the model: debug → Aion → Figure, each state button, Figure → Orion → Figure, Figure → Yin Yang → Figure, greet, onboarding.
+
 ## Isolating body problems from model problems
 
 The debug panel can drive the body without OpenAI:

@@ -21,3 +21,10 @@ export const FORM_SAMPLES: readonly FormSample[] = [
   { group: "Astrology", label: "Scorpio ♏", args: { form: "astrology.scorpio" } },
   { group: "Astrology", label: "Pisces ♓", args: { form: "astrology.pisces" } },
 ];
+
+/** ?debug=1 body → information → body tests: take the figure, show a form, and let it re-form as the figure. */
+export const AION_TRANSFORM_TESTS: readonly { label: string; body: "figure" | "sphere"; form: { form: string } }[] = [
+  { label: "Figure → Orion → Figure", body: "figure", form: { form: "astronomy.orion" } },
+  { label: "Figure → Yin Yang → Figure", body: "figure", form: { form: "tao.yin-yang" } },
+  { label: "Sphere → Orion → Sphere", body: "sphere", form: { form: "astronomy.orion" } },
+];

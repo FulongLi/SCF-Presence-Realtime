@@ -104,6 +104,37 @@ Open <http://localhost:3000> and allow the microphone. Then talk.
 
 Invalid values fall back to the defaults and are never forwarded.
 
+## Aion
+
+| | |
+| --- | --- |
+| Product | **Intelligent Presence**: the system that gives Aion a voice and a visual body |
+| Entity | **Aion**, an interactive AI presence |
+| Identity | created by **Spirit Connect**, led by **Fulong** |
+
+Aion is kept as three separate concepts ([`src/aion/`](src/aion/)):
+
+- **Identity** (who Aion is): one frozen manifest, [`aion/identity.ts`](src/aion/identity.ts). Both backends' prompts, the greeting, tool descriptions and the debug panel read it; a test checks that the identity literals appear nowhere else. The prompts give the facts, not a script: wording may vary, facts may not, the names stay unchanged in every language, and Aion never claims consciousness or feelings. Aion starts in English and follows the user's language.
+- **State** (what Aion is doing): `idle`, `listening`, `thinking`, `speaking`, plus `presenting` (a visual tool is working) and the one-shot gestures `greeting`, `acknowledging` (a small nod when the user's turn ends) and `curious` (debug only). The state is derived only from real signals: the PresenceEngine's mode (microphone VAD, backend turn events, the actual assistant audio) and the visual lifecycle. No emotion is inferred. Invalid states fall back to idle.
+- **Body** (which form Aion occupies): the persistent body, `sphere` (the original) or `figure` (the Particle Figure), changed with the `set_body_form` tool ("take a human form", "go back to the sphere", "变成人形", "回到球体").
+
+**Persistent body vs temporary visual.** The persistent body is what Aion rests as, until it is changed. A temporary visual (`show_image`, `show_form`, `show_clock`…) is information the body briefly becomes. It forms out of whichever persistent body is active and returns to it:
+
+```text
+figure → "Show me Orion" → the figure dissolves into Orion → hold → Orion re-forms into the figure
+sphere → visual → sphere
+```
+
+The runtime renders the persistent body as a rest layer under every visual, so the same particles carry every change. `return_to_sphere` ends a visual (back to the persistent body) and never changes that body.
+
+**Particle Figure.** A minimal, quiet humanoid drawn in the sphere's own language, with no avatar, model or bitmap. It is built from a 15-anchor skeleton ([`figure/skeleton.ts`](src/aion/figure/skeleton.ts)) and sampled particle paths ([`figure/layout.ts`](src/aion/figure/layout.ts)): a ring of light for the head, fine lines for the bones, small joint clusters, a faint torso veil, loose grains and a deep near-black dust. Poses move anchors only ([`figure/pose.ts`](src/aion/figure/pose.ts)), and the grains follow on the GPU. Body language is small and low-frequency: breathing and a slow weight shift at rest, a lean and head tilt when listening, stillness (and a faint halo turning about the head) when thinking, a slight voice-driven lift of the hands when speaking, one short wave for the greeting, a nod as acknowledgement, and an open arm toward a visual being presented.
+
+**First greeting.** Once per page session, only after the microphone, the voice session and the body are ready and it has been quiet for a moment: *"Hi, I'm Aion. You can just talk to me naturally. If you'd like, ask me to show you something."* with the greeting gesture. If the user speaks first, it is dropped. Reconnects, backend switches and idle pauses do not greet again. Realtime speaks it as one `response.create` with its own instructions; GPT-Live receives it as `session.commentary.append` (which is why that event is on the Live frontend allowlist).
+
+**Onboarding.** Asked "What can you do?", "怎么玩？" or "I don't know what to do", Aion answers in a sentence or two with a few examples. Every example is backed by a tool of this build, and a test runs each through the real tool mapping.
+
+**Debug.** `?debug=1` → **Aion** shows body, state and greeting status. It has buttons for greet and onboarding, Sphere and Figure, every state (held or one-shot), and Figure → Orion → Figure / Figure → Yin Yang → Figure.
+
 ## Voice backends: Realtime and GPT-Live
 
 Both backends share everything except the protocol adapter: the one microphone stream, `MicrophoneListener`, `AssistantAudio`, `PresenceEngine`, the particle system, the visual tool definitions, the `ToolExecutor`, the Visual Resolver and the local brand assets. The particle body does not know which backend is talking.
@@ -125,7 +156,7 @@ Both backends share everything except the protocol adapter: the one microphone s
 
 ## Native visual tools
 
-The model gets ten function tools (see [`src/voice/tools/definitions.ts`](src/voice/tools/definitions.ts)). The same definitions are registered as Realtime `session.tools` and as GPT-Live `delegation.responses.tools`. Two are open, one draws any registered visual form, one shows any single emoji, and the rest are convenience shapes. There are no per-object, per-form or per-emoji tools like `show_car`, `show_mountain`, `show_company_logo`, `show_orion` or `show_smile`.
+The model gets eleven function tools (see [`src/voice/tools/definitions.ts`](src/voice/tools/definitions.ts)): ten temporary visuals and `set_body_form`, which changes Aion's persistent body (see [Aion](#aion)). The same definitions are registered as Realtime `session.tools` and as GPT-Live `delegation.responses.tools`. Two are open, one draws any registered visual form, one shows any single emoji, and the rest are convenience shapes. There are no per-object, per-form or per-emoji tools like `show_car`, `show_mountain`, `show_company_logo`, `show_orion` or `show_smile`.
 
 | Tool | Arguments | Becomes |
 | --- | --- | --- |
@@ -138,7 +169,8 @@ The model gets ten function tools (see [`src/voice/tools/definitions.ts`](src/vo
 | `show_text` | `{ value }` | `{ type: "text", value }`, one short word or label |
 | `show_symbol` | `{ symbol }` | `{ type: "symbol", value }`: check, cross, heart, star, question, exclamation, arrow-up/down/left/right, plus, minus |
 | `show_emoji` | `{ emoji }` | `{ type: "emoji", value }`: exactly one Unicode emoji grapheme (😊, ❤️, 👍🏻, 👨‍🚀, 🇬🇧, …). Drawn instantly from the system emoji font, no network; a brief expressive reaction, held 4 s. |
-| `return_to_sphere` | `{}` | `{ type: "sphere" }` |
+| `return_to_sphere` | `{}` | `{ type: "sphere" }`: ends the visual; the body returns to its persistent form |
+| `set_body_form` | `{ form }`, form ∈ sphere, figure | not a visual: changes the persistent body (`{"ok":true,"status":"body-changed","shown":"Particle Figure"}`, or `unchanged`) |
 
 Every call maps onto the **same `VisualAction` schema** and passes strict `validateVisualAction()` checks before reaching the `VisualActionController`. Those checks are allowlists, length limits, no markup, URLs or control characters, and no unknown fields. Open queries are only ever used as search text.
 
@@ -283,6 +315,7 @@ npm run build
 
 The unit tests cover:
 
+- **Aion:** the identity manifest and that its literals live in one place; both prompts carrying the facts, language following and onboarding; onboarding examples backed by real tools; the greeting gate (once, only when ready, suppressed by user speech, never again after reconnects) and each backend's greeting event; the state machine (conversation → state, gestures, invalid → idle); the persistent body (default sphere, selection by id or name, remembered, `set_body_form` separate from `show_form`); figure → visual → figure and sphere → visual → sphere; the skeleton's anchors, bounds, symmetry and limb lengths; every state's pose bounded and restrained; the particle layout valid, finite and complete at every quality tier.
 - **Body port:** presence states (offline and live), microphone VAD, acoustic emphasis/focus, spectrum, adaptive quality, sphere sampling, speech motion and morph blending, the Visual Action lifecycle, validation, clock/number/text/symbol and portrait sampling.
 - **Visual Resolver** (all providers mocked):
   - Guarded fetch: host allowlist, no redirects or credentials, MIME and magic bytes, oversize by header and stream, timeouts vs cancellation.
@@ -325,6 +358,7 @@ No database, queue, WebSocket server or extra infrastructure is needed.
 - **Terrain** is a 2.5D relief, not a GIS. It uses one geocoder match, one zoom level, a grid of at most 160 cells a side, and public services that can be rate-limited or unavailable (`terrain-unavailable`). Land below sea level is treated as sea.
 - **Visual forms are hand-authored.** Constellations come from transcribed catalogue positions and common stick figures (atlases differ), glyphs are drawn paths, and there is no live sky, ephemeris or natal chart. A concept without a form reports `form-not-found`, and the model can fall back to `show_image`.
 - **No true 3D yet.** glTF/OBJ/STL models, meshes and point clouds are deliberately not supported. `VisualTarget` has a placeholder for them.
+- **The Particle Figure is a first pass.** Its gestures are a deliberately small vocabulary, it has no face, lip sync or 3D model, and its look was tuned by eye on one display. Only the sphere and the figure exist as persistent bodies. The body choice lasts for the page session; after a reconnect the model is not told which body is active.
 - **Visual quality was not verified in CI.** Rendering is tested through its pure parts (sampling, lifecycle, blending). The WebGPU output itself needs the manual smoke test.
 
 ## Relationship to SCF-AI-Presence

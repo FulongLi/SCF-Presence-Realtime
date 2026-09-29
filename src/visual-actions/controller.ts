@@ -11,6 +11,9 @@ const ease = (x: number) => x * x * x * (x * (x * 6 - 15) + 10);
 
 /**
  * Lifecycle of Visual Actions: sphere → controlled morph → information → hold → return → sphere.
+ * "sphere" here means *at rest in the persistent body*: the sphere, or Aion's figure when that is the
+ * chosen body (the runtime mixes the persistent body in underneath; see aion/body.ts). A visual never
+ * changes which body it returns to.
  * A new action while another is shown first returns through the sphere, so the same particles
  * always carry the change and the target buffer is only replaced while the body is a sphere.
  */
@@ -34,6 +37,9 @@ export class VisualActionController {
   ) {}
 
   get busy() { return Boolean(this.resolving) || Boolean(this.pending) || this.phase !== "sphere"; }
+
+  /** A visual is on its way or on show (resolving, queued, forming or held); not while returning to the body. */
+  get presenting() { return Boolean(this.resolving) || Boolean(this.pending) || this.phase === "forming" || this.phase === "holding"; }
 
   submit(action: VisualAction): Promise<SubmitOutcome> {
     this.cancel();

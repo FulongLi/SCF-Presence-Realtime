@@ -48,3 +48,21 @@ test("stop() leaves no session behind and notifies subscribers once per change",
   unsubscribe();
   assert.equal(notified, 0, "no change, no notification");
 });
+
+test("Aion is wired in: the body tool changes the persistent body and releases a visual on show", async () => {
+  const controller = new PresenceController(environments);
+  assert.equal(controller.aion.currentBody, "sphere");
+  const result = await controller.executor.execute("set_body_form", JSON.stringify({ form: "figure" }));
+  assert.deepEqual(result.result, { ok: true, status: "body-changed", shown: "Particle Figure" });
+  assert.equal(controller.aion.currentBody, "figure");
+  assert.equal(controller.setBody("figure"), false, "already the figure");
+  assert.equal(controller.visual.phase, "sphere", "no temporary visual was started");
+});
+
+test("the first greeting is not spoken without a session, and a failed attempt does not use it up", () => {
+  const controller = new PresenceController(environments);
+  assert.equal(controller.aion.greeting.status, "waiting");
+  assert.equal(controller.greet(), false, "no connected session: nothing is said");
+  assert.equal(controller.aion.greeting.status, "waiting", "the automatic greeting can still happen");
+  assert.equal(controller.aion.currentState, "idle", "no greeting gesture without a greeting");
+});

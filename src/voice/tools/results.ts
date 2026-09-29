@@ -3,7 +3,7 @@
  * fields so the model can continue naturally; they never contain internal protocol details.
  */
 export type ToolStatus =
-  | "displayed" | "forming" | "returning"
+  | "displayed" | "forming" | "returning" | "body-changed" | "unchanged"
   | "invalid-arguments" | "unknown-tool" | "superseded"
   | "portrait-not-found" | "portrait-unavailable"
   | "image-not-found" | "image-unavailable"
@@ -14,14 +14,14 @@ export type ToolStatus =
 export interface ToolResult {
   ok: boolean;
   status: ToolStatus;
-  /** What the body shows, when the model may want to say it (e.g. the local time, or which form a name found). */
+  /** What the body shows, when the model may want to say it (e.g. the local time, which form a name found, or the persistent body). */
   shown?: string;
   /** For clocks: the user's IANA time zone, so a spoken time can be qualified if needed. */
   timeZone?: string;
 }
 
 export const displayed = (extra: Omit<ToolResult, "ok" | "status"> = {}): ToolResult => ({ ok: true, status: "displayed", ...extra });
-export const failed = (status: Exclude<ToolStatus, "displayed" | "forming" | "returning">): ToolResult => ({ ok: false, status });
+export const failed = (status: Exclude<ToolStatus, "displayed" | "forming" | "returning" | "body-changed" | "unchanged">): ToolResult => ({ ok: false, status });
 
 const FAILURES = new Set<string>([
   "portrait-not-found", "portrait-unavailable", "image-not-found", "image-unavailable",

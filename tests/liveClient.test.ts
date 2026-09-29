@@ -282,3 +282,15 @@ test("drops reconnect with backoff; a safety close is final; errors from the ser
   assert.equal(failing.connection, "error");
   assert.equal(failing.state.error, "not-configured");
 });
+
+test("speak: Aion's greeting is session commentary for GPT-Live to say, only when connected and quiet", async () => {
+  const h = harness();
+  assert.equal(h.client.speak("Hi, I'm Aion."), false, "no session, nothing sent");
+  await h.started();
+  h.channel().receive({ type: "session.input_transcript.delta", delta: "hello" });
+  assert.equal(h.client.speak("Hi, I'm Aion."), false, "never over the user");
+  await h.advance(5000);
+  assert.equal(h.client.speak("Hi, I'm Aion."), true);
+  assert.deepEqual(h.channel().sent.map(event => ({ ...event, event_id: undefined })),
+    [{ type: "session.commentary.append", event_id: undefined, content: "Hi, I'm Aion.", delegation_id: null }]);
+});

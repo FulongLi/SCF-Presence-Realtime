@@ -19,7 +19,7 @@ src/
     client.ts                     VoiceClient: the small interface PresenceController drives
     webrtc.ts                     PeerLike / ChannelLike (mockable WebRTC shapes)
     visualGuidance.ts             visual-body and visual-tool rules shared by both prompts
-    tools/definitions.ts          the ten visual function tools (two open, one visual-form, one emoji, six convenience): one schema
+    tools/definitions.ts          the eleven function tools (two open, one visual-form, one emoji, six convenience, set_body_form): one schema
     tools/executor.ts             args → VisualAction → validate → VisualActionController (one executor)
     tools/results.ts              concise function_call_output payloads
   live/                           GPT-Live adapter (separate protocol, nothing shared with realtime/ events)
@@ -48,7 +48,7 @@ src/
     Presence.tsx, StageNotice.tsx React surface (particle stage + minimal notices)
     PresenceEngine.ts             modes and smoothed signal for the body
     focus.ts, signal.ts, strings.ts
-  particle/                       WebGPU runtime, TSL physics, rendering, quality (ported)
+  particle/                       WebGPU runtime, TSL physics, rendering, quality (ported); physics/figure.ts: the figure rest layer
   visual-actions/                 VisualAction schema, validation, VisualActionController (lifecycle)
   visual-resolver/                action → VisualTarget: providers, sources, transforms, particle sampling
     index.ts                      createBrowserResolver(): wires the providers below
@@ -79,11 +79,60 @@ src/
     tao/                          yin-yang, yin/yang lines, the eight trigrams, the bagua (ink)
     celestial/astronomy/          catalogue (RA/Dec, magnitude), gnomonic chart, star-map renderer
     celestial/astrology/          zodiac and planetary glyph paths, star-glyph renderer
+  aion/                           Aion: identity, state and persistent body, kept apart (pure, no DOM)
+    identity.ts                   AION_IDENTITY: the one canonical manifest (name, product, creator, lead creator)
+    guidance.ts                   prompt text built from it: identity, language, onboarding (tool-backed examples), greeting line
+    state.ts                      AionStateMachine: presence mode + visual lifecycle → idle/listening/thinking/speaking/presenting + gestures
+    greeting.ts                   GreetingGate: once per page session, after mic + session + body ready and quiet
+    body.ts                       persistent bodies (sphere, figure), name resolution, AionBody transition
+    index.ts                      Aion: ties them together; the runtime's BodySource
+    figure/skeleton.ts            15 named anchors, proportions, bones and joints (data)
+    figure/pose.ts                pose parameters per state → forward kinematics → anchors; FigureAnimator
+    figure/layout.ts              every particle bound to the skeleton; CPU reference of the GPU expression
   dev/debugPanel.ts               ?debug=1 diagnostics
   dev/formSamples.ts              the ?debug=1 visual-form acceptance set (pure data, tested)
 ```
 
 public/assets/brand/              curated brand files (place spirit-connect-logo.svg here)
+
+## Aion: identity, state, body
+
+```text
+Aion
+├── identity   who     AION_IDENTITY (Aion · Intelligent Presence · Spirit Connect · Fulong) → prompts, greeting, tools, debug
+├── state      doing   PresenceEngine mode + visual lifecycle + one-shot gestures → AionStateMachine
+└── body       form    persistent: sphere | figure (set_body_form)   ≠   temporary visual (show_*)
+```
+
+The three never import each other's concerns: identity has no rendering, the state machine knows nothing of anatomy, and the body knows nothing of the conversation.
+
+**Two layers of rest.** The particle system has always had one rest (the sphere) and one morph target (a temporary visual). Aion adds a second rest layer, the figure, mixed in by a per-particle staggered weight (`bodyMorph`, `physics/morph.ts › bodyWeight`):
+
+```text
+rest     = mix(sphere, figure(anchors), bodyWeight)        persistent body
+position = mix(rest, formedTarget(visual), morphWeight)    temporary visual on top
+```
+
+Because a visual always forms out of `rest` and returns to it, figure → Orion → figure needs no extra lifecycle: `VisualActionController`'s `"sphere"` phase simply means "at rest in the persistent body", and the body's choice is never touched by a visual. A weight of 0 is the old expression exactly, so the promo film and every sphere path are unchanged. The sphere's own presence field (breathing, contraction, speech tufts) is shaped for a sphere; under the figure it keeps 6% of its strength (enough to stay alive without blurring the fine lines) and body language comes from the pose instead, plus a slight voice glimmer along the view axis.
+
+**The figure on the GPU.** Each particle carries two extra vec4s, `bind = (packed anchors a|b|c|d|kind, s, t, tone)` and `local = (along, across, depth, phase)`: position = bilinear(a, b, c, d; s, t) plus the local offset in the frame of a → b, a gentle flow along the bone, and small noise. The pose animator uploads 15 anchors (a `vec4` uniform array) per frame, so a gesture costs 60 floats, not a buffer upload. Bones use c = b, d = a; joints and dust use one anchor; the head ring hangs off neck → head, so a head tilt turns the ring. `figurePoint()` is the CPU reference used by the tests. Storage use: two more read-only buffers in the compute pass (seven in all) and two in the vertex stage.
+
+**State mapping.**
+
+| Signal | Aion state | Figure |
+| --- | --- | --- |
+| no activity | idle | breathing, a slow weight shift |
+| local VAD / backend hears the user | listening | slight lean, head tilt, calmer |
+| listening → thinking/speaking | acknowledging (0.9 s) | one small nod |
+| response expected, tool running | thinking | stiller, head a little lower, faint halo turns |
+| actual assistant audio | speaking | hands and chest lift slightly with the amplitude |
+| a visual resolving / forming / held | presenting | an open arm toward it, then it dissolves into the visual |
+| the first greeting | greeting (2.8 s) | one hand raised, two small waves, lowered |
+| debug only | curious (2.6 s) | head tilt |
+
+**Greeting.** `GreetingGate` (pure) is polled every 150 ms by `PresenceController`: waiting → settling (microphone ready, connected, body ready or known unavailable) → after 0.9 s of quiet, sent. User speech, or any conversation activity, while connected suppresses it for good. It lives as long as the controller, so reconnects and backend switches never greet twice. `VoiceClient.speak(line)`: Realtime sends `response.create { response: { instructions } }`; GPT-Live sends `session.commentary.append { content, delegation_id: null }` (added to `allowed_client_events`; it can only ask the voice to say something, not change the session).
+
+**Adding a body.** A future persistent body (constellation figure, ink figure, light ribbon) is one entry in `PERSISTENT_BODIES` plus one rest layer in the particle system. The tool enum, prompts and debug buttons read the list.
 
 ## Voice backends
 

@@ -1,5 +1,6 @@
 import { SPECTRUM_BANDS } from "../../audio/spectrum";
-import { Vector3 } from "three";
+import { Vector3, Vector4 } from "three";
+import { ANCHOR_COUNT } from "@/aion/figure/skeleton";
 import { uniform, uniformArray } from "three/tsl";
 import type { ParticleConfig } from "@/config/particleDefaults";
 
@@ -38,6 +39,11 @@ export function createUniforms(config: ParticleConfig) {
     speechGain: uniform(1), formedShimmer: uniform(0),
     // How far a spinning formed visual has turned (radians; see MorphTarget.motion).
     formedAngle: uniform(0),
+    // Aion's persistent body (see aion/body.ts): the figure layer's weight, its skeleton anchors (world
+    // units, vec4 each) and the halo's accumulated turn. Weight 0 leaves the sphere exactly as before.
+    bodyMorph: uniform(0),
+    anchors: uniformArray(Array.from({ length: ANCHOR_COUNT }, () => new Vector4()), "vec4"),
+    figureOrbit: uniform(0),
     size: uniform(config.geometry.size), ambient: uniform(config.lighting.ambient),
     key: uniform(config.lighting.key), fill: uniform(config.lighting.fill), wrap: uniform(config.lighting.wrap),
   };

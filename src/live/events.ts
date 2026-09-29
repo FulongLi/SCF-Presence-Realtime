@@ -138,6 +138,12 @@ export function parseLiveEvent(data: unknown): LiveEvent {
 export type LiveClientEvent =
   | { type: "response.item.create"; event_id: string; item: { type: "function_call_output"; call_id: string; output: string } }
   | { type: "response.create"; event_id: string }
+  /** Content for GPT-Live to say in its own words (Aion's first greeting); `null`: general session context. */
+  | { type: "session.commentary.append"; event_id: string; content: string; delegation_id: null }
   | { type: "session.close"; event_id: string };
 
-export const LIVE_FRONTEND_CLIENT_EVENTS: readonly LiveClientEvent["type"][] = ["response.item.create", "response.create", "session.close"];
+/**
+ * What the browser may send. `session.commentary.append` lets the page ask the voice to say a short
+ * line (the first greeting); it cannot change instructions, tools or the session.
+ */
+export const LIVE_FRONTEND_CLIENT_EVENTS: readonly LiveClientEvent["type"][] = ["response.item.create", "response.create", "session.commentary.append", "session.close"];

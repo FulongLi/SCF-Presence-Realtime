@@ -1,3 +1,5 @@
+import { Aion, type AionBodyId } from "../aion";
+import { greetingLine, onboardingLine } from "../aion/guidance";
 import { AssistantAudio, type PlaybackState } from "../audio/assistant";
 import { MicrophoneListener, microphonePermission, requestMicrophone } from "../audio/microphone/MicrophoneListener";
 import { LiveClient, type LiveEnvironment } from "../live/client";
@@ -44,6 +46,8 @@ export interface VoiceTimings {
 export const presenceDefaults = {
   /** A connected session with no conversation for this long ends (and releases the microphone) to save cost. */
   idleEndMs: 10 * 60_000,
+  /** How often the first-greeting gate is checked (ms). */
+  greetingCheckMs: 150,
 };
 
 const INITIAL_UI: PresenceUi = { mic: "checking", connection: "disconnected", error: null, needsGesture: false, playback: "idle" };
@@ -57,12 +61,16 @@ const emptyTimings = (): VoiceTimings => ({ connectMs: null, replyMs: null, resu
  *   remote assistant track ──► AssistantAudio (playback + analysis) ─► PresenceEngine (speaking)
  *   backend events ──────────► PresenceEngine hints (turns, thinking, barge-in)
  *   visual function calls ───► ToolExecutor ─► VisualActionController ─► VisualResolver ─► particle morph
+ *   set_body_form ───────────► Aion body (sphere | figure) ─► the rest every visual forms from and returns to
+ *   ready + quiet ───────────► Aion's first greeting (once per page session)
  *
  * Both backends share everything except the protocol adapter; the body never knows which one spoke.
  * Construction is side-effect free (safe during server rendering); start() touches the browser.
  */
 export class PresenceController {
   readonly engine = new PresenceEngine();
+  /** Aion: identity, state and persistent body (see src/aion). */
+  readonly aion: Aion;
   readonly visual: VisualActionController;
   readonly resolver: VisualResolver;
   readonly executor: ToolExecutor;
@@ -81,6 +89,9 @@ export class PresenceController {
   private connectingSince: number | null = null;
   private resultAt = -Infinity;
   private idleTimer?: ReturnType<typeof setInterval>;
+  private greetingTimer?: ReturnType<typeof setInterval>;
+  /** The particle body: not yet known, on screen, or unavailable (no WebGPU; voice still works). */
+  private body: "pending" | "ready" | "unavailable" = "pending";
 
   constructor(
     private readonly environments: VoiceEnvironments = browserEnvironments,
@@ -91,7 +102,8 @@ export class PresenceController {
     this.visual = new VisualActionController(this.resolver.resolve, (error, action) => {
       if (process.env.NODE_ENV === "development") console.warn("[SCF] Visual Action could not be resolved", action, error);
     });
-    this.executor = new ToolExecutor(this.visual);
+    this.aion = new Aion({ signal: () => this.engine.signal, presenting: () => this.visual.presenting });
+    this.executor = new ToolExecutor(this.visual, undefined, { setBody: form => this.setBody(form) });
     this.runner = {
       execute: async (name, args) => {
         const execution = await this.executor.execute(name, args);
@@ -115,6 +127,7 @@ export class PresenceController {
   start() {
     const generation = ++this.generation;
     this.idleTimer = setInterval(() => this.checkIdle(), 15_000);
+    this.greetingTimer = setInterval(() => this.checkGreeting(), this.options.greetingCheckMs);
     void microphonePermission().then(state => {
       if (generation !== this.generation) return;
       if (state === "granted") void this.begin(false);
@@ -160,6 +173,7 @@ export class PresenceController {
   stop() {
     this.generation++;
     clearInterval(this.idleTimer);
+    clearInterval(this.greetingTimer);
     this.client.disconnect();
     this.releaseMicrophone();
     this.assistant.detach();
@@ -169,6 +183,48 @@ export class PresenceController {
   }
 
   dispose() { this.stop(); this.assistant.dispose(); }
+
+  /**
+   * Changes Aion's persistent body. A visual on show is released so the change is seen at once: the
+   * particles return and re-form as the new body. False when it already is that body.
+   */
+  setBody(form: AionBodyId) {
+    const changed = this.aion.setBody(form);
+    if (changed && this.visual.busy) void this.visual.submit({ type: "sphere" });
+    return changed;
+  }
+
+  /** The particle body is on screen (true), or will never be (false: no WebGPU). Either way the greeting may follow. */
+  bodyReady(available: boolean) { this.body = available ? "ready" : "unavailable"; }
+
+  /** Says the first greeting now, with the greeting gesture (debug, or the gate below). */
+  greet() {
+    if (!this.client.speak(greetingLine(this.aion.identity))) return false;
+    this.aion.greeting.markSent();
+    this.aion.gesture("greeting");
+    return true;
+  }
+
+  /** Says the short onboarding line (debug: tests the beginner answer without the model deciding to). */
+  onboard() { return this.client.speak(onboardingLine()); }
+
+  /**
+   * The first greeting fires once, only after the microphone, the voice session and the body are ready and
+   * a moment has passed in quiet; if the user (or the assistant) speaks first, it never does.
+   */
+  private checkGreeting() {
+    const gate = this.aion.greeting;
+    if (gate.done) { clearInterval(this.greetingTimer); return; }
+    const now = performance.now();
+    const fire = gate.update({
+      micReady: this.ui.mic === "ready",
+      connected: this.client.connection === "connected",
+      bodyReady: this.body !== "pending",
+      userActive: this.listener.vad.voiced || this.engine.signal.mode === "listening",
+      conversationActive: this.client.busy(now) || this.engine.signal.mode === "speaking",
+    }, now);
+    if (fire) this.greet();
+  }
 
   private createClient(backend: VoiceBackend): ActiveVoiceClient {
     // Late callbacks from a client that has been switched away from are ignored. (No callback runs

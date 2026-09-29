@@ -1,3 +1,4 @@
+import { speakInstructions } from "../aion/guidance";
 import type { ConversationHints } from "../presence/PresenceEngine";
 import type { ConnectionState, Transcript, VoiceClient } from "../voice/client";
 import { EVENTS_CHANNEL, type ChannelLike, type PeerLike } from "../voice/webrtc";
@@ -106,6 +107,15 @@ export class RealtimeClient implements VoiceClient {
     this.generation++;
     this.teardown();
     this.dispatch({ type: "connection", state: final });
+  }
+
+  /**
+   * Has the voice say a short line itself (Aion's first greeting): one response with its own instructions.
+   * Not while anything else is in progress, so it never talks over the user or another reply.
+   */
+  speak(line: string): boolean {
+    if (this.state.connection !== "connected" || this.busy()) return false;
+    return this.send({ type: "response.create", response: { instructions: speakInstructions(line) } });
   }
 
   send(event: ClientEvent): boolean {

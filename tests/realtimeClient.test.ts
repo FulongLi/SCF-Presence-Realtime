@@ -246,3 +246,20 @@ test("a session that never finishes connecting times out into a reconnect", asyn
   assert.equal(h.client.connection, "reconnecting");
   assert.equal(h.client.state.error, "connect-timeout");
 });
+
+test("speak: Aion's greeting is one response with its own instructions, only when connected and quiet", async () => {
+  const h = harness();
+  assert.equal(h.client.speak("Hi, I'm Aion."), false, "no session, nothing sent");
+  h.client.connect(h.microphone);
+  await settle();
+  h.channel().open();
+  h.channel().receive({ type: "input_audio_buffer.speech_started", item_id: "a" });
+  assert.equal(h.client.speak("Hi, I'm Aion."), false, "never over the user");
+  h.channel().receive({ type: "input_audio_buffer.speech_stopped", item_id: "a" });
+  h.channel().receive({ type: "response.created", response: { id: "r1" } });
+  h.channel().receive({ type: "response.done", response: { id: "r1", status: "completed", output: [] } });
+  assert.equal(h.client.speak("Hi, I'm Aion."), true);
+  const [event] = h.channel().sent as { type: string; response: { instructions: string } }[];
+  assert.equal(event.type, "response.create");
+  assert.match(event.response.instructions, /"Hi, I'm Aion\."/);
+});

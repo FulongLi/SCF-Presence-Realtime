@@ -44,7 +44,7 @@ test("creates a GPT-Live WebRTC session with the same OPENAI_API_KEY; only the a
   assert.equal(payload.session.model, "gpt-live-1");
   assert.equal(payload.session.audio.format, undefined, "WebRTC negotiates audio; no audio.format");
   assert.equal(payload.session.delegation.type, "responses");
-  assert.deepEqual(payload.session.client.data_channel.allowed_client_events, ["response.item.create", "response.create", "session.close"]);
+  assert.deepEqual(payload.session.client.data_channel.allowed_client_events, ["response.item.create", "response.create", "session.commentary.append", "session.close"]);
   assert.equal(payload.transport.type, "webrtc");
 });
 

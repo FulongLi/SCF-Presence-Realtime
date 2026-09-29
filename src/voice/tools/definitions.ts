@@ -1,3 +1,5 @@
+import { AION_BODIES, PERSISTENT_BODIES } from "../../aion/body";
+import { AION_IDENTITY } from "../../aion/identity";
 import { IMAGE_INTENTS, SYMBOL_NAMES, TERRAIN_STYLES } from "../../visual-actions/types";
 import { FORM_NAME_MAX, visualForms } from "../../visual-forms";
 
@@ -8,11 +10,13 @@ import { FORM_NAME_MAX, visualForms } from "../../visual-forms";
  * the browser by the same ToolExecutor. No MCP, no relay, no transcript inference. Keep the set
  * deliberately small: two open tools (show_image, show_terrain) backed by the Visual Resolver, one tool
  * for SCF's own visual language (show_form, every registered visual form), one open expressive tool
- * (show_emoji, any single emoji, drawn locally), plus a few convenience shapes.
+ * (show_emoji, any single emoji, drawn locally), plus a few convenience shapes. `set_body_form` is the one
+ * tool that is not a temporary visual: it changes Aion's persistent body (sphere or figure).
  */
 export const VISUAL_TOOL_NAMES = [
   "show_image", "show_terrain", "show_form",
   "show_clock", "show_portrait", "show_number", "show_text", "show_symbol", "show_emoji", "return_to_sphere",
+  "set_body_form",
 ] as const;
 export type VisualToolName = typeof VISUAL_TOOL_NAMES[number];
 
@@ -62,10 +66,10 @@ export const visualTools: readonly VisualFunctionTool[] = [
     name: "show_image",
     description: "Form a picture of almost anything with your particle body: a person, vehicle, product, object, "
       + "animal, building, place, artwork, logo, map or a reference image of an idea. SCF first checks its curated local "
-      + "assets (such as the Spirit Connect company logo), then searches open image sources. Use when seeing it "
+      + `assets (such as the ${AION_IDENTITY.creatorCompany} company logo), then searches open image sources. Use when seeing it `
       + "materially helps, e.g. the user asks what something looks like or wants to see it.",
     parameters: object({
-      query: { type: "string", description: "What to show, as a short specific search phrase, e.g. \"Tesla Model Y\", \"futuristic concept car\", \"Eiffel Tower at night\", \"Spirit Connect logo\". At most 100 characters, no URLs." },
+      query: { type: "string", description: `What to show, as a short specific search phrase, e.g. "Tesla Model Y", "futuristic concept car", "Eiffel Tower at night", "${AION_IDENTITY.creatorCompany} logo". At most 100 characters, no URLs.` },
       intent: { type: "string", enum: [...IMAGE_INTENTS], description: "What kind of picture this is; helps choose sources and framing. Default general." },
     }, ["query"]),
   },
@@ -154,7 +158,19 @@ export const visualTools: readonly VisualFunctionTool[] = [
   {
     type: "function",
     name: "return_to_sphere",
-    description: "Immediately return your body to its resting sphere, e.g. when a shown visual is no longer relevant.",
+    description: "Immediately end the temporary visual, e.g. when it is no longer relevant: your body returns to its "
+      + "current persistent form (the sphere or the figure). It does not change that form; use set_body_form for that.",
     parameters: object(),
+  },
+  {
+    type: "function",
+    name: "set_body_form",
+    description: "Change your persistent body, the form you rest in between visuals: "
+      + `${PERSISTENT_BODIES.map(body => `"${body.id}" (${body.description})`).join(", ")}. `
+      + "Use it only when the user asks you to take a form, e.g. \"take a human form\", \"become a figure\", "
+      + "\"go back to the sphere\", \"变成人形\", \"回到球体\". It stays until changed; every temporary visual returns to it.",
+    parameters: object({
+      form: { type: "string", enum: [...AION_BODIES], description: "The persistent body to take." },
+    }, ["form"]),
   },
 ];

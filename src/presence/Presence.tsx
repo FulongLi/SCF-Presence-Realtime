@@ -27,7 +27,7 @@ export default function Presence({ configuredBackend = null }: {
   const t = stringsFor(language);
   const [controller] = useState(() => new PresenceController(undefined, configuredBackend ?? DEFAULT_VOICE_BACKEND));
   const ui = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getServerSnapshot);
-  const [inputs] = useState<RuntimeInputs>(() => ({ presence: controller.engine, morph: controller.visual }));
+  const [inputs] = useState<RuntimeInputs>(() => ({ presence: controller.engine, morph: controller.visual, body: controller.aion }));
   const [graphicsError, setGraphicsError] = useState<string | null>(null);
   const stage = useRef<HTMLElement>(null);
   const runtime = useRef<RuntimeHandle | null>(null);
@@ -56,8 +56,8 @@ export default function Presence({ configuredBackend = null }: {
     return () => { cancelled = true; detach?.(); };
   }, [controller]);
 
-  const onGraphicsError = useCallback((code: string) => setGraphicsError(code), []);
-  const onReady = useCallback((handle: RuntimeHandle) => { runtime.current = handle; }, []);
+  const onGraphicsError = useCallback((code: string) => { setGraphicsError(code); controller.bodyReady(false); }, [controller]);
+  const onReady = useCallback((handle: RuntimeHandle) => { runtime.current = handle; controller.bodyReady(true); }, [controller]);
 
   return (
     <main className="presence" ref={stage}>
