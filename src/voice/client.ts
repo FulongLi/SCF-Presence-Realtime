@@ -25,4 +25,6 @@ export interface VoiceClient extends ConversationSource {
   disconnect(final?: "disconnected" | "ended"): void;
   /** A conversation is in progress (user speaking, assistant audible, backend work running). `now` in ms. */
   busy(now: number): boolean;
+  /** Asks the voice to say a short line itself (Aion's first greeting). False when it cannot now. */
+  speak(line: string): boolean;
 }

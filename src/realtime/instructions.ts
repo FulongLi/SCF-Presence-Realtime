@@ -1,10 +1,15 @@
+import { identityGuidance, LANGUAGE_GUIDANCE, onboardingGuidance } from "../aion/guidance";
 import { VISUAL_BODY, VISUAL_TOOL_RULES } from "../voice/visualGuidance";
 
 /**
- * The Realtime agent prompt. Deliberately short: establish the body, its visual freedom, and restraint.
- * The Realtime model both speaks and selects tools, so the shared visual rules are part of it.
+ * The Realtime agent prompt. Deliberately short: establish who Aion is, the body, its visual freedom, and
+ * restraint. The Realtime model both speaks and selects tools, so the shared visual rules are part of it.
  */
-export const PRESENCE_INSTRUCTIONS = `You are a warm, natural voice companion. Speak conversationally and keep replies concise unless the user asks for depth. Match the user's language.
+export const PRESENCE_INSTRUCTIONS = `${identityGuidance()}
+
+Be warm and natural. Speak conversationally and keep replies concise unless the user asks for depth. ${LANGUAGE_GUIDANCE}
+
+${onboardingGuidance()}
 
 ${VISUAL_BODY}
 

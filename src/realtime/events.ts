@@ -140,6 +140,7 @@ export function parseServerEvent(data: unknown): RealtimeEvent {
 /** GA client events SCF sends over the data channel. */
 export type ClientEvent =
   | { type: "conversation.item.create"; item: { type: "function_call_output"; call_id: string; output: string } }
-  | { type: "response.create" }
+  /** `response.instructions` makes this one response say a given line (Aion's first greeting). */
+  | { type: "response.create"; response?: { instructions: string } }
   | { type: "response.cancel" }
   | { type: "output_audio_buffer.clear" };

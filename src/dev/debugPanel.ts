@@ -1,4 +1,6 @@
 import { SPECTRUM_BANDS } from "@/audio/spectrum";
+import { bodyLabel, bodyTransition, PERSISTENT_BODIES } from "@/aion/body";
+import { AION_STATES, isGesture, type AionState } from "@/aion/state";
 import type { RuntimeHandle } from "@/particle/ParticleRuntime";
 import { qualityTiers } from "@/particle/quality";
 import type { PresenceController } from "@/presence/controller";
@@ -10,7 +12,7 @@ import { LOCAL_ASSETS } from "@/visual-resolver";
 import { IMAGE_INTENTS, SYMBOL_NAMES, TERRAIN_STYLES } from "@/visual-actions/types";
 import { validateVisualAction } from "@/visual-actions/validate";
 import { visualForms } from "@/visual-forms";
-import { FORM_SAMPLES } from "./formSamples";
+import { AION_TRANSFORM_TESTS, FORM_SAMPLES } from "./formSamples";
 
 /**
  * Development diagnostics, loaded only for `?debug=1` in development builds (or with
@@ -20,7 +22,7 @@ import { FORM_SAMPLES } from "./formSamples";
 export function attachDebugPanel(container: HTMLElement, { controller, runtime }: {
   controller: PresenceController; runtime: () => RuntimeHandle | null;
 }) {
-  const { engine, visual, executor, assistant, resolver } = controller;
+  const { engine, visual, executor, assistant, resolver, aion } = controller;
   const panel = document.createElement("aside");
   panel.className = "debug-panel";
   // Clicks inside the panel are not conversation gestures and must not move particles.
@@ -42,6 +44,36 @@ export function attachDebugPanel(container: HTMLElement, { controller, runtime }
   const now = () => performance.now() / 1000;
   const fixed = (value: number, digits = 2) => value.toFixed(digits);
   const age = (at: number | null | undefined) => at ? `${Math.round((performance.now() - at) / 1000)} s ago` : "—";
+
+  // Aion: identity, persistent body and body-language state, each testable without the model.
+  const aionSection = section(aion.identity.name, true);
+  const aionOut = el("output", "", aionSection);
+  let lastAion = "";
+  const identityRow = el("div", "", aionSection);
+  button("greet", identityRow, () => { lastAion = controller.greet() ? "greeting sent" : "greeting not sent (not connected or busy)"; });
+  button("onboarding", identityRow, () => { lastAion = controller.onboard() ? "onboarding sent" : "onboarding not sent (not connected or busy)"; });
+  const bodyRow = el("div", "", aionSection);
+  el("span", "body ", bodyRow);
+  for (const body of PERSISTENT_BODIES) button(body.label, bodyRow, () => { controller.setBody(body.id); });
+  const stateRow = el("div", "", aionSection);
+  el("span", "state ", stateRow);
+  button("auto", stateRow, () => aion.state.force(null));
+  // Held states are forced; gestures (greeting, acknowledging, curious) play once.
+  for (const state of AION_STATES) {
+    button(state, stateRow, () => {
+      if (isGesture(state)) { aion.state.force(null); aion.gesture(state); } else aion.state.force(state as AionState);
+    });
+  }
+  const transformRow = el("div", "", aionSection);
+  el("span", "transform ", transformRow);
+  // Body → information → body: the visual dissolves out of the figure and re-forms into it.
+  for (const test of AION_TRANSFORM_TESTS) {
+    button(test.label, transformRow, () => {
+      // Let the body finish re-forming first, so the visual clearly dissolves out of it.
+      const wait = controller.setBody(test.body) || aion.body.transitioning ? bodyTransition.seconds * 1000 + 400 : 0;
+      setTimeout(() => runTool("show_form", test.form), wait);
+    });
+  }
 
   const voice = section("voice backend", true);
   // A/B: switch the backend on the same microphone; the choice is kept in the URL (?voice=) for reloads.
@@ -293,6 +325,12 @@ export function attachDebugPanel(container: HTMLElement, { controller, runtime }
     ].filter(Boolean).join("\n") : "—";
     const q = handle?.quality();
     if (q) tier.value = String(q.tier);
+    aionOut.textContent = [
+      `${aion.identity.name} · ${aion.identity.product} · ${aion.identity.creatorCompany} / ${aion.identity.leadCreator}`,
+      `Body: ${bodyLabel(aion.currentBody)}${aion.body.transitioning ? ` (re-forming ${fixed(aion.body.level)})` : ""}`,
+      `State: ${aion.currentState}${aion.state.override ? " (forced)" : ""} · greeting ${aion.greeting.status}`,
+      lastAion,
+    ].filter(Boolean).join("\n");
     presenceOut.textContent = [
       `${signal.mode}${engine.override ? " (forced)" : ""} · focus ${fixed(signal.acousticFocus)} · thinking ${fixed(signal.thinking)}`,
       `visual ${visual.phase} ${fixed(visual.level)} · ${visual.target ? visual.target.label : "sphere"}${visual.lastFailure ? ` · last failure ${visual.lastFailure}` : ""}`,

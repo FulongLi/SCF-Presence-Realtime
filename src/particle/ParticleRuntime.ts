@@ -1,6 +1,7 @@
-import { ACESFilmicToneMapping, PerspectiveCamera, Scene } from "three";
+import { ACESFilmicToneMapping, PerspectiveCamera, Scene, type Vector4 } from "three";
 import { WebGPURenderer } from "three/webgpu";
 import { particleDefaults, type ParticleConfig } from "@/config/particleDefaults";
+import type { BodySource } from "@/aion";
 import type { PresenceSignalSource } from "@/presence/signal";
 import type { MorphTarget } from "@/visual-actions/types";
 import { morphSpeechBlend } from "./morphBlend";
@@ -13,7 +14,11 @@ import { SpeechMotion } from "./speechMotion";
 
 /** What the runtime reads each frame. It knows nothing about the Realtime session, tools or permissions. */
 export interface MorphSource { sample(dt: number): number; readonly revision: number; readonly target: MorphTarget | null }
-export interface RuntimeInputs { presence: PresenceSignalSource; morph: MorphSource }
+/**
+ * `body` is Aion's persistent body (sphere or figure, see aion/body.ts), the rest every temporary visual
+ * forms from and returns to. Without it (e.g. the promo film) the body is always the sphere.
+ */
+export interface RuntimeInputs { presence: PresenceSignalSource; morph: MorphSource; body?: BodySource }
 
 /**
  * Camera staging relative to the product's own framing (a director's camera, e.g. the promo film).
@@ -156,6 +161,13 @@ export async function createParticleRuntime(
       }
     }
     u.morph.value = morph;
+    const body = inputs.body?.sample(dt, now, calm());
+    if (body) {
+      u.bodyMorph.value = body.level;
+      u.figureOrbit.value = body.orbit;
+      const anchors = u.anchors.array as Vector4[];
+      for (let i = 0; i < anchors.length; i++) anchors[i].fromArray(body.anchors, i * 4);
+    }
     // A spinning visual (MorphTarget.motion) turns slowly about the view axis; each new target starts upright.
     const spin = inputs.morph.target?.motion?.spin ?? 0;
     if (morph > 0 && Number.isFinite(spin) && spin !== 0) spinAngle = (spinAngle + spin * dt * (calm() ? 0.15 : 1)) % (Math.PI * 2);
